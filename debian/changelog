@@ -1,8 +1,37 @@
-wasta-offline-setup (1.1.5) trusty; urgency=medium
+wasta-offline-setup (1.1.9) trusty; urgency=medium
 
-  * version bump for initial github / launchpad commit
+  * initial github / launchpad commit
 
- -- Rik Shaw <rikshaw76@gmail.com>  Sun, 04 Oct 2015 17:11:27 +0300
+ -- Rik Shaw <rikshaw76@gmail.com>  Sun, 04 Oct 2015 17:20:15 +0300
+
+wasta-offline-setup (1.1.8) precise; urgency=low
+
+  * don't delete non-distributables folder when purging dups 
+
+ -- Justin Luth <jluth@mail.com>  Fri, 03 Jul 2015 17:22:35 +0300
+
+wasta-offline-setup (1.1.7) precise; urgency=low
+
+  * support "Rafaela", offline non-distributables
+
+ -- Justin Luth <jluth@mail.com>  Sat, 27 Jun 2015 15:40:59 +0300
+
+wasta-offline-setup (1.1.6) precise; urgency=low
+
+  * Undo the split into 2 steps.  Problem was too much "noise"
+    to stderr.  Probably filled up a buffer or something.  Instead
+    wrote it out to the log.  Not a big deal since can't write
+    to screen anyway during zenity calls.
+  * Hang was only a problem with LOTS of excess packages. 
+
+ -- Justin Luth <jluth@mail.com>  Mon, 05 Jan 2015 23:42:21 +0300
+
+wasta-offline-setup (1.1.5) precise; urgency=low
+
+  * remove unnecessary GKSU call from .desktop shortcut (allows non-sudo
+    users to run the program.)
+
+ -- Justin Luth <jluth@mail.com>  Fri, 26 Dec 2014 09:55:44 +0300
 
 wasta-offline-setup (1.1.4) trusty; urgency=medium
 

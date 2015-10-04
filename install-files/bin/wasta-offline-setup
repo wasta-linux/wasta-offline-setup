@@ -30,8 +30,9 @@
 #   2014-10-15 jcl: added support for mint Rebecca (17.1)
 #   2014-11-10 jcl: bumping to version 1.0
 #   2014-11-11 jcl: add section to isolate obsolete packages in local-cache
-#   2014-12-25 rik: For isloating obsolete packages, splitting into 2 steps,
-#     since on 14.04 with a large number of packages (1200) it seemed to "hang"
+#   2015-01-06 jcl: dpkg-scanpackages hangs on lots of stderr output, so
+#       redirected into $LOG.
+#  2015-06-30 jcl: 1.1.7 support "Rafaela", offline non-distributables
 #
 # ==============================================================================
 
@@ -122,9 +123,9 @@ then
   <b>* Select</b> an <b>existing</b> <i>'wasta-offline'</i>  folder <b>or</b>\n
   <b>* Create</b> (and then <b>Select</b>) a <b>new</b> <i>'wasta-offline'</i>  folder\n
   
-<small><i><b>NOTE:</b> If instead you want to use <b>full apt-mirror repositories</b>
-with wasta [Offline], click <b>No</b> and use apt-mirror to set up
-wasta [Offline], using a 'wasta-offline/apt-mirror' folder
+<small><i><b>NOTE:</b> If instead you want to use <b>full mirror repositories</b>
+with wasta [Offline], click <b>No</b> and instead use apt-mirror or debmirror 
+to set up wasta [Offline], using a 'wasta-offline/apt-mirror' folder
 as the apt-mirror base path.</i></small>
 
 <small><i><b>NOTE:</b> wasta [Offline] will be able to use <b>both</b>
@@ -237,7 +238,7 @@ case "$SERIES" in
     REPO_SERIES="saucy"
   ;;
   
-  trusty|qiana|rebecca)
+  trusty|qiana|rebecca|rafaela)
     #LTS 14.04-based mint 17 and mint 17.1
     REPO_SERIES="trusty"
   ;;
@@ -245,6 +246,7 @@ case "$SERIES" in
     # Don't know the series, just go with what is reported (maybe debian)
     # 14.10 Utopic Unicorn:  no corresponding Mint series, so default is OK
     # 15.04 Vivid Vervet:    no corresponding Mint series, so default is OK
+    # 15.10 Wily Werewolf:   no corresponding Mint series, so default is OK
     REPO_SERIES=$SERIES
   ;;
 esac
@@ -267,12 +269,11 @@ fi
 
 echo "Architecture Folder set to: $ARCH_FOLDER" | tee -a "$LOG"
 
-
 echo | tee -a "$LOG"
 echo "Local Repository set to: $WO_LOC/local-cache/$REPO_SERIES/$ARCH_FOLDER" \
      | tee -a "$LOG"
 
-mkdir -p "$WO_LOC/local-cache/$REPO_SERIES/$ARCH_FOLDER/"
+mkdir -p "$WO_LOC/local-cache/$REPO_SERIES/$ARCH_FOLDER/non-distributables"
 
 # rsync cache
 echo | tee -a "$LOG"
@@ -422,11 +423,10 @@ then
 
     echo "#Isolating obsolete 64bit packages...\n\n\n\n\n"
     #only the most current of the 64bit and _all packages are returned.
-
-    #2014-12-25 rik: splitting "KEEP" into 2 steps, since on 14.04 with a
-    #   large number of packages (1200) it seemed to "hang" with just one step.
-    KEEP_TEMP=$(dpkg-scanpackages --arch amd64 "$REPO_SERIES/$ARCH_FOLDER")
-    KEEP=$(echo "$KEEP_TEMP" | grep "^Filename: " | cut -c 11-)
+    #  Redirecting stderr to $LOG to avoid hanging situation.
+    KEEP=$(dpkg-scanpackages --arch amd64 "$REPO_SERIES/$ARCH_FOLDER" \
+      2>> "$LOG" \
+      | grep "^Filename: " | cut -c 11-)
     
     for x in $KEEP; do  #expects that no packages have spaces in the name
       echo "#Isolating obsolete 64bit packages...\n\nKeeping $x\n\n\n"
@@ -441,13 +441,10 @@ then
     echo "#Isolating obsolete 32bit packages...\n\n\n\n\n"
     #only the most current of the 32bit and _all packages (again) are returned.
     #  meaning that the _all versions would include the TWO latest versions 
-    #  in the final folder, so skipping ALL packages this time.
-    
-    #2014-12-25 rik: splitting "KEEP" into 2 steps, since on 14.04 with a
-    #   large number of packages (1200) it seemed to "hang" with just one step.
-    KEEP_TEMP=$(dpkg-scanpackages --arch i386 "$REPO_SERIES/$ARCH_FOLDER")
-    KEEP=$(echo "$KEEP_TEMP" | grep --invert-match "_all.deb$" \
-        | grep "^Filename: " | cut -c 11-)
+    #  in the final folder, so skipping ALL packages this time. 
+    KEEP=$(dpkg-scanpackages --arch i386 "$REPO_SERIES/$ARCH_FOLDER" \
+      2>>"$LOG" \
+      | grep "^Filename: " | grep --invert-match "_all.deb$" | cut -c 11-)
     
     for x in $KEEP; do  #expects that no packages have spaces in the name
       echo "#Isolating obsolete 32bit packages...\n\nKeeping $x\n\n\n"
@@ -461,7 +458,13 @@ then
 
     #test if at least ONE package is current (indicating that dpkg didn't fail)
     rmdir --ignore-fail-on-non-empty "$REPO_SERIES/${ARCH_FOLDER}_NEW"
+
     if [ -e "$REPO_SERIES/${ARCH_FOLDER}_NEW" ]; then
+      if [ -d "$REPO_SERIES/${ARCH_FOLDER}/non-distributables" ]; then
+        mv "$REPO_SERIES/${ARCH_FOLDER}/non-distributables" \
+           "$REPO_SERIES/${ARCH_FOLDER}_NEW" | tee -a "$LOG"
+      fi
+
       rename       "s/${ARCH_FOLDER}/${ARCH_FOLDER_OLD}/" \
         "$REPO_SERIES/${ARCH_FOLDER}"                        | tee -a "$LOG"
       rename       "s/${ARCH_FOLDER}_NEW/${ARCH_FOLDER}/" \
@@ -485,7 +488,7 @@ then
 
   if [ -x "$REPO_SERIES/${ARCH_FOLDER_OLD}" ]; then
     echo "++++++++++++++++++++++++++++++++++++++++++++++++++++++"|tee -a "$LOG"
-    echo "DEBUG:the following packages are marked obsolete"      |tee -a "$LOG"
+    echo "DEBUG:the following packages were marked obsolete"     |tee -a "$LOG"
     ls "$REPO_SERIES/${ARCH_FOLDER_OLD}"                         |tee -a "$LOG"
     rmdir --ignore-fail-on-non-empty  $REPO_SERIES/${ARCH_FOLDER_OLD} 
     echo "++++++++++++++++++++++++++++++++++++++++++++++++++++++"|tee -a "$LOG"
@@ -587,6 +590,60 @@ check the log
 for dpkg-scanpackage details.
 <b>wasta [Offline] Setup will now exit.</b>"
   exit 1
+fi
+# --------------------------------------------------------------------------
+# Non-distributable files - offline cache
+# --------------------------------------------------------------------------
+DEB_FILES=$WO_LOC/local-cache/$REPO_SERIES/$ARCH_FOLDER
+if [ -x "${DEB_FILES}/non-distributables" ];
+then
+  echo | tee -a "$LOG"
+  echo "OPTIONAL: Helping to make non-distributables offlinable," |tee -a "$LOG"
+  echo "I provided you with a list of the packages containing"    |tee -a "$LOG"
+  echo "non-distributable contents. See:"                         |tee -a "$LOG"
+  echo "${DEB_FILES}/non-distributables/eligiblePackages.list.txt"|tee -a "$LOG"
+  apt-cache rdepends update-notifier-common \
+    >  "${DEB_FILES}/non-distributables/eligiblePackages.list.txt"
+
+  cat - >> "${DEB_FILES}/non-distributables/eligiblePackages.list.txt" << EOS
+
+FIRST: find out if a package has the ability to find local copies of the
+install files. To "discover" the variable name, run "debconf-get-selections".
+   (sudo apt-get install debconf-utils) to install debconf-get-selections
+
+A template (preseed.cfg.template) is provided with some known examples.
+
+
+SECOND: If a local cache is supported, the list of files to pre-download is:
+    dpkg --fsys-tarfile "${DEB_FILES}/<package-name_version.deb>" \
+    | tar --extract --to-stdout --file - ./usr/share/package-data-downloads
+
+Then download from each URL and place it in "${DEB_FILES}/non-distributables".
+Install SHA256 (sudo apt-get install sha256) and verify the checksums
+    sha256 "${DEB_FILES}/non-distributables/*"
+
+THIRD: create a file called "preseed.cfg" containing the debconf variables
+that point to ${DEB_FILES}/non-distributables/
+
+A template (preseed.cfg.template) is provided with some known examples.
+EOS
+
+  cat - > "${DEB_FILES}/non-distributables/preseed.cfg.template" << EOS
+# Preseeding provides a way to set answers to questions asked during the 
+# installation process, without having to manually enter the answers while the
+# installation is running.
+#
+# preseed.cfg general format for offline file folder location:
+# <package-name> <debconf-variable-name> string <path/to/offline-downloads/
+#
+# use "debconf-get-selections" for a list of the variable names available
+#
+# WARNING: the download path will be wrong if you change the USB name.
+
+# ttf-mscorefonts-installer	msttcorefonts/dldir	string ${DEB_FILES}/non-distributables
+# android-sdk-installer	android-sdk-installer/dldir	string ${DEB_FILES}/non-distributables
+EOS
+
 fi
 
 echo | tee -a "$LOG"
