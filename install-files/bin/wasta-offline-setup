@@ -1,0 +1,618 @@
+#!/bin/bash
+
+# ==============================================================================
+# wasta-offline-setup
+#
+# Set up or update a "wasta-offline local cache repository", which consists
+#   of software packages from another computer's local apt cache of installed
+#   software.  Separate wasta-offline local cache repositories are maintained
+#   for different "Ubuntu series" ("precise" for Ubuntu 12.04 / Mint 13,
+#   "trusty" for Ubuntu 14.04 / Mint 17.x) and "architectures" (amd64 or i386).
+#
+#   2014-03-18 rik: Initial script
+#   2014-03-32 rik: re-working zenity progress dialogs.
+#   2014-04-09 rik: Re-re-working progress dialogs.
+#   2014-04-19 jcl:  merge wasta-offline changes into wasta-offline-setup,
+#     --multiversion flag to dpkg-scanpackages, and check for 0-sized Packages.
+#   2014-04-21 jcl: necessary to have separate i386 and amd64 folders.
+#     Apparently APT isn't smart enough to NOT show amd64 software to a i386
+#     system.  Amd64 sometimes needs i386 packages so can't use --arch amd86
+#     for dpkg-scanpackages and for safety sake we don't want to make ALL i386
+#     packages available to amd64.  So keep separate folders for 32 and 64bit.
+#   2014-04-24 rik: $USER, $(logname), $(whoami), $(who) all not set when using
+#     gksu, so can't "find" the /media/$USER/wasta-offline folder.  Changing
+#     to just returning first /media/*/*/wasta-offline for now.
+#   2014-08-27 jcl: check free space / warn if full.
+#   2014-10-13 rik: add zenity dialog for "sync"command (was taking over 3
+#     minutes on a slow USB making user think it had "hung").
+#     - stripping "commas" from rsync 3.1+ transfer size output for free space
+#     check.
+#   2014-10-15 jcl: added support for mint Rebecca (17.1)
+#   2014-11-10 jcl: bumping to version 1.0
+#   2014-11-11 jcl: add section to isolate obsolete packages in local-cache
+#   2014-12-25 rik: For isloating obsolete packages, splitting into 2 steps,
+#     since on 14.04 with a large number of packages (1200) it seemed to "hang"
+#
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Check to ensure running as root
+# ------------------------------------------------------------------------------
+if [ $(id -u) -ne 0 ]
+then
+  # OUT will be <blank> if user not in sudo group
+  OUT=$(groups $(whoami) | grep "sudo")
+  if [ "$OUT" ]; then
+    # user has sudo permissions: use them to re-run the script
+    GKSU_MODE=sudo-mode
+  else
+    GKSU_MODE=su-mode
+  fi
+
+  gksu   --${GKSU_MODE}  --message \
+"<big><b>Authentication is required to run wasta [Offline] Setup</b></big>
+
+You must be logged in as an Administrative user to use wasta [Offline] Setup." \
+  wasta-offline-setup "$@"
+
+  exit 0
+fi
+
+# pipefail will make $? contain the rightmost non-zero return, or 0 if all
+#   commands return 0.  Needed for "| tee" commands or else 0 will be the return
+#   of the commands even if the "real command" returned an error (since tee will
+#   return 0).
+set -o pipefail
+
+LOG_DATE=$(date +%F-%H-%M)
+HOST=$(uname -n)
+
+# Need to store up log messages, since log location not set yet.
+MSG=\
+"===========================================================
+"
+MSG+=$(date +%T)
+MSG+=" $HOST wasta-offline-setup started"
+MSG+="
+-----------------------------------------------------------"
+
+# ------------------------------------------------------------------------------
+# Set wasta-offline archive location
+# ------------------------------------------------------------------------------
+
+WO_LOC=""
+
+# If passed parameter, attempt to use it
+if [ -n "$1" ]
+then
+  PARAM="$1"
+  MSG+="
+
+Passed Parameter: $PARAM"
+  
+  # trim off trailing whitespace:
+  PARAM=$(echo "${PARAM}" | sed 's@ *$@@')
+  # trim off trailing "/"
+  PARAM=$(echo "${PARAM}" | sed 's@/*$@@')
+  
+  if [[ "$PARAM" == *"wasta-offline" ]] && [[ -e "$PARAM" ]]
+  then
+    # valid location, use it (if not valid will be prompted below)
+    WO_LOC="$PARAM"
+    MSG+="
+
+wasta-offline location set from passed parameter: $WO_LOC"
+  else
+    MSG+="
+
+Parameter invalid, wasta-offline location not set: $PARAM"
+  fi
+fi
+
+# if WO_LOC not set, give initial prompt and then prompt for folder
+if [[ -z "$WO_LOC" ]]
+then
+  zenity --question --no-wrap --height=200 --width=500 \
+    --title="wasta [Offline] Setup" \
+    --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+    --text="<b>Use wasta [Offline] Setup to add your computer's
+<u>local software cache</u> to wasta [Offline]?</b>\n
+
+<i>You will be prompted to <b>either</b>:</i>\n
+  <b>* Select</b> an <b>existing</b> <i>'wasta-offline'</i>  folder <b>or</b>\n
+  <b>* Create</b> (and then <b>Select</b>) a <b>new</b> <i>'wasta-offline'</i>  folder\n
+  
+<small><i><b>NOTE:</b> If instead you want to use <b>full apt-mirror repositories</b>
+with wasta [Offline], click <b>No</b> and use apt-mirror to set up
+wasta [Offline], using a 'wasta-offline/apt-mirror' folder
+as the apt-mirror base path.</i></small>
+
+<small><i><b>NOTE:</b> wasta [Offline] will be able to use <b>both</b>
+'local cache' <b>and</b> 'apt-mirror' repositories for local
+software updates or installs on other computers.</i></small>"
+  if [ "$?" -ne 0 ];
+  then
+    # User didn't say yes: exit
+    exit 1
+  fi
+  
+     
+  # first, look for wasta-offline folder under /media/$USER (12.10 and newer)
+  # 2014-04-24 rik: $USER, $(logname), $(whoami), $(who) all not working when
+  #   launch with gksu.  So, just setting to /media/*/*/wasta-offline :-(
+  START_FOLDER=$(ls -1d /media/*/*/wasta-offline 2> /dev/null | head -1)
+  
+  if [ -z "$START_FOLDER" ]
+  then
+    # second, look for wasta-offline folder under /media (12.04 and older)
+    START_FOLDER=$(ls -1d /media/*/wasta-offline 2>/dev/null | head -1)
+  fi
+  
+  if [ -z "$START_FOLDER" ]
+  then
+    # no wasta-offline, try /media/$USER (12.10 and newer)
+    # 2014-04-24 rik: this also won't work ($USER), but will just ignore for
+    #   now, and "/media" will be selected below.
+    START_FOLDER=$(ls -1d /media/$USER 2>/dev/null | head -1)
+  fi
+  
+  if [ -z "$START_FOLDER" ]
+  then
+    # no /media/$USER, try /media
+    START_FOLDER=$(ls -1d /media 2>/dev/null | head -1)
+  fi
+  
+  if [ -z "$START_FOLDER" ]
+  then
+    # no /media folder, so start in /
+    START_FOLDER="/"
+  fi
+
+  MSG+="
+
+start folder: $START_FOLDER"
+  
+  FOLDER_SEL=$(zenity --file-selection \
+    --directory --filename="$START_FOLDER" \
+    --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+    --title="Select or Create a 'wasta-offline' Folder")
+  if [[ "$FOLDER_SEL" == *"wasta-offline" ]]
+  then
+    # valid wasta-offline folder
+    WO_LOC="$FOLDER_SEL"
+
+    MSG+="
+
+wasta-offline location: $WO_LOC"
+  else
+    zenity --error --width=500 --height=200 --no-wrap \
+      --title="wasta [Offline] Setup: Exiting" \
+      --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+      --text="<b>Selected Folder:</b> $FOLDER_SEL\n
+This folder is not a <b>'wasta-offline'</b> folder.\n
+wasta [Offline] Setup will now exit.\n\n<b>No processing done...</b>"
+    exit 1
+  fi
+fi
+
+#If still don't have wasta-offline folder, exit
+if [[ -z "$WO_LOC" ]]
+then
+  zenity --error --width=500 --height=200 --no-wrap \
+    --title="wasta [Offline] Setup: Exiting" \
+    --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+    --text "No <b>'wasta-offline'</b> folder has been set.\n
+wasta-offline-setup will now exit.\n\n<b>No processing done...</b>"
+  exit 1
+fi
+
+# FINALLY have directory, so set log location
+
+mkdir -p "$WO_LOC/log/wasta-offline-setup"
+LOG="$WO_LOC/log/wasta-offline-setup/$LOG_DATE-$HOST.log"
+
+echo "$MSG" | tee -a "$LOG"
+
+# ------------------------------------------------------------------------------
+# Main Processing
+# ------------------------------------------------------------------------------
+
+# get series, load them up.
+SERIES=$(lsb_release -sc)
+case "$SERIES" in
+  precise|maya)
+    #LTS 12.04-based mint 13
+    REPO_SERIES="precise"
+  ;;
+
+  quantal|nadia)
+    REPO_SERIES="quantal"
+  ;;
+  
+  raring|olivia)
+    REPO_SERIES="raring"
+  ;;
+  
+  saucy|petra)
+    REPO_SERIES="saucy"
+  ;;
+  
+  trusty|qiana|rebecca)
+    #LTS 14.04-based mint 17 and mint 17.1
+    REPO_SERIES="trusty"
+  ;;
+  *)
+    # Don't know the series, just go with what is reported (maybe debian)
+    # 14.10 Utopic Unicorn:  no corresponding Mint series, so default is OK
+    # 15.04 Vivid Vervet:    no corresponding Mint series, so default is OK
+    REPO_SERIES=$SERIES
+  ;;
+esac
+
+echo | tee -a "$LOG"
+echo "Local Repository Series set to: $REPO_SERIES" | tee -a "$LOG"
+
+# get architecture:
+ARCH=$(uname -m)
+
+if [ $ARCH == 'x86_64' ]
+then
+  ARCH_FOLDER="binary-amd64"
+elif [ $ARCH == 'i386' ] || [ $ARCH == 'i686' ]
+then
+  ARCH_FOLDER="binary-i386"
+else
+  ARCH_FOLDER="binary-${ARCH}"
+fi
+
+echo "Architecture Folder set to: $ARCH_FOLDER" | tee -a "$LOG"
+
+
+echo | tee -a "$LOG"
+echo "Local Repository set to: $WO_LOC/local-cache/$REPO_SERIES/$ARCH_FOLDER" \
+     | tee -a "$LOG"
+
+mkdir -p "$WO_LOC/local-cache/$REPO_SERIES/$ARCH_FOLDER/"
+
+# rsync cache
+echo | tee -a "$LOG"
+echo "--------------------------------------------------------" | tee -a "$LOG"
+echo "*** Checking for necessary free disk space              " | tee -a "$LOG"
+echo "--------------------------------------------------------" | tee -a "$LOG"
+echo | tee -a "$LOG"
+
+FREE_SPACE=$(($(stat -f --format="%a*%S" "${WO_LOC}")))
+echo "${FREE_SPACE} bytes of free disk space in ${WO_LOC}"      | tee -a "$LOG"
+
+TEMP_USE_SPACE=$( \
+  rsync -rtv --update --modify-window=1 --exclude=partial --exclude=lock  \
+  --stats --dry-run \
+  "/var/cache/apt/archives/" \
+  "$WO_LOC/local-cache/$REPO_SERIES/$ARCH_FOLDER/" \
+  | grep "Total transferred file size:" | awk -F " " '{print $5}' \
+  )
+# rsync 3.1 and newer we need to trim out the commas from the transfer size
+USE_SPACE=$(echo ${TEMP_USE_SPACE} | sed 's/[^0-9]//g')
+echo "${USE_SPACE} bytes needed to add new packages"  | tee -a "$LOG"
+
+[ ${FREE_SPACE} ] && [ ${USE_SPACE} ] && \
+if [ ${FREE_SPACE} -lt ${USE_SPACE} ]; then
+  echo "WARNING:  NOT ENOUGH DISK SPACE" | tee -a "$LOG"
+  zenity --question --width=500 --height=200 --no-wrap \
+    --title="wasta [Offline] Setup: Warning" \
+    --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+    --text "Not enough disk space to add package files.\n
+${FREE_SPACE} bytes reported to be free.
+${USE_SPACE}  bytes required to add new packages.
+
+Continue when ready."
+  if [ "$?" -ne 0 ];
+  then
+    # User canceled because they weren't ready with enough free space
+    exit 1
+  fi
+fi
+
+echo | tee -a "$LOG"
+echo "--------------------------------------------------------" | tee -a "$LOG"
+echo "*** Updating wasta-offline Local Cache Repository       " | tee -a "$LOG"
+echo "--------------------------------------------------------" | tee -a "$LOG"
+echo | tee -a "$LOG"
+
+# can't use "tee" here because I need to get the PID of the rsync command
+rsync -rtv --update --modify-window=1 --exclude=partial --exclude=lock \
+  "/var/cache/apt/archives/" \
+  "$WO_LOC/local-cache/$REPO_SERIES/$ARCH_FOLDER/" 2>&1 >> "$LOG" &
+# get pid, loop while program is running and use if it needs to be killed
+RSYNC_PID=$!
+
+# zenity progress dialog
+(
+  sleep 1
+  COUNT=1
+  # Loop while still processing
+  while [ "$(ps --no-headers -p $RSYNC_PID)" ]
+  do
+    CURRENT=$(tail -n 1 "$LOG")
+    echo "#Copying local software cache to wasta [Offline]...\n\nCurrent Item: $CURRENT\n\nElapsed Time: $COUNT seconds\n"
+    sleep 1
+    COUNT=$((COUNT+1))
+  done
+
+  echo | tee -a "$LOG"
+  echo "Info: rsync took approximately $COUNT seconds." | tee -a "$LOG"
+
+) | zenity --progress --title="wasta [Offline] Setup: Copying Software Cache" \
+    --pulsate --auto-close --width=500 --height=200 \
+    --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+    --text "Copying local software cache to wasta [Offline]...\n\n\n\n\n"
+
+if [ "$?" -ne 0 ];
+then
+  #user must have canceled progress window, so need to kill RSYNC_PID if found
+  echo | tee -a "$LOG"
+  echo "*** Killing rsync process $RSYNC_PID if found." | tee -a "$LOG"
+  kill $RSYNC_PID
+  
+  zenity --error --no-wrap --title="wasta [Offline] Setup: Exiting" \
+    --width=500 --height=200 --no-wrap \
+    --text "<b>Copying Local Cache Canceled:</b> your computer's
+local cache not addded to the 'wasta-offline' folder.\n
+<b>wasta [Offline] Setup will now exit.</b>"
+  exit 1
+fi
+
+#flush any unfinished (buffered) writes to the USB before continuing.
+#rik: this can take some time for slow USB sticks (multiple minutes) so need
+#   to include this in progress indicator.
+sync 2>&1 >> "$LOG" &
+# get pid, loop while program is running
+SYNC_PID=$!
+
+# zenity progress dialog
+(
+  sleep 1
+  COUNT=1
+  # Loop while still processing
+  while [ "$(ps --no-headers -p $SYNC_PID)" ]
+  do
+    CURRENT=$(tail -n 1 "$LOG")
+    echo "#Waiting for the disk to finish saving the files...\n\n\n\nElapsed Time: $COUNT seconds\n"
+    sleep 1
+    COUNT=$((COUNT+1))
+  done
+
+  echo | tee -a "$LOG"
+  echo "Info: flushing file buffers to disk (sync) took approximately $COUNT seconds." | tee -a "$LOG"  
+
+  #second sync just to "make sure"
+  sync
+
+) | zenity \
+  --progress --title="wasta [Offline] Setup: Flushing file buffers to disk" \
+  --pulsate --auto-close --width=500 --height=200 --no-cancel\
+  --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+  --text "Waiting for the disk to finish saving the files...\n\n\n\n\n"
+
+
+# Package List
+cd "$WO_LOC/local-cache"
+
+
+if [ -e "$REPO_SERIES/${ARCH_FOLDER}/clean_me_up.txt" ]  || \
+   [ -e "clean_me_up.txt" ]
+then
+(
+  #---------------------------------------------------------------------------
+  #Clean old versions of packages out of the ARCH_FOLDER     
+  #---------------------------------------------------------------------------
+
+  ARCH_FOLDER_OLD=${ARCH_FOLDER}_$(date +%Y-%m-%d)
+  if ! [ -e "$REPO_SERIES/${ARCH_FOLDER_OLD}" ] && \
+     ! [ -e "$REPO_SERIES/${ARCH_FOLDER}_NEW" ]
+  then
+    echo | tee -a "$LOG"
+    echo "-------------------------------------------------------"|tee -a "$LOG"
+    echo "*** Leaving obsolete packages in ${ARCH_FOLDER_OLD}"    |tee -a "$LOG"
+    echo "-------------------------------------------------------"|tee -a "$LOG"
+    echo | tee -a "$LOG"
+
+    #...by creating a "new" folder and moving current items into it
+    mkdir "$REPO_SERIES/${ARCH_FOLDER}_NEW"                | tee -a "$LOG"
+
+    echo "#Isolating obsolete 64bit packages...\n\n\n\n\n"
+    #only the most current of the 64bit and _all packages are returned.
+
+    #2014-12-25 rik: splitting "KEEP" into 2 steps, since on 14.04 with a
+    #   large number of packages (1200) it seemed to "hang" with just one step.
+    KEEP_TEMP=$(dpkg-scanpackages --arch amd64 "$REPO_SERIES/$ARCH_FOLDER")
+    KEEP=$(echo "$KEEP_TEMP" | grep "^Filename: " | cut -c 11-)
+    
+    for x in $KEEP; do  #expects that no packages have spaces in the name
+      echo "#Isolating obsolete 64bit packages...\n\nKeeping $x\n\n\n"
+      if [ -e $x ]; then
+        mv $x  "$REPO_SERIES/${ARCH_FOLDER}_NEW"           | tee -a "$LOG"
+      else
+        echo "ERROR: unexpected missing package [$x]"      | tee -a "$LOG"
+      fi
+    done
+    sync
+
+    echo "#Isolating obsolete 32bit packages...\n\n\n\n\n"
+    #only the most current of the 32bit and _all packages (again) are returned.
+    #  meaning that the _all versions would include the TWO latest versions 
+    #  in the final folder, so skipping ALL packages this time.
+    
+    #2014-12-25 rik: splitting "KEEP" into 2 steps, since on 14.04 with a
+    #   large number of packages (1200) it seemed to "hang" with just one step.
+    KEEP_TEMP=$(dpkg-scanpackages --arch i386 "$REPO_SERIES/$ARCH_FOLDER")
+    KEEP=$(echo "$KEEP_TEMP" | grep --invert-match "_all.deb$" \
+        | grep "^Filename: " | cut -c 11-)
+    
+    for x in $KEEP; do  #expects that no packages have spaces in the name
+      echo "#Isolating obsolete 32bit packages...\n\nKeeping $x\n\n\n"
+      if [ -e $x ]; then
+        mv $x  "$REPO_SERIES/${ARCH_FOLDER}_NEW"           | tee -a "$LOG"
+      else
+        echo "ERROR: unexpected missing package [$x]"      | tee -a "$LOG"
+      fi
+    done
+    sync
+
+    #test if at least ONE package is current (indicating that dpkg didn't fail)
+    rmdir --ignore-fail-on-non-empty "$REPO_SERIES/${ARCH_FOLDER}_NEW"
+    if [ -e "$REPO_SERIES/${ARCH_FOLDER}_NEW" ]; then
+      rename       "s/${ARCH_FOLDER}/${ARCH_FOLDER_OLD}/" \
+        "$REPO_SERIES/${ARCH_FOLDER}"                        | tee -a "$LOG"
+      rename       "s/${ARCH_FOLDER}_NEW/${ARCH_FOLDER}/" \
+        "$REPO_SERIES/${ARCH_FOLDER}_NEW"                    | tee -a "$LOG"
+    fi
+    sync
+  else
+    echo "ERROR: skipping package cleanup because:"| tee -a "$LOG"
+    if [ -e "$REPO_SERIES/${ARCH_FOLDER_OLD}" ]; then
+      echo "it already ran today.  See ${REPO_SERIES}/${ARCH_FOLDER_OLD}"\
+        | tee -a "$LOG"
+    elif [ -e "$REPO_SERIES/${ARCH_FOLDER}_NEW" ]; then
+      echo "it didn't finish earlier, and was left in a broken state:"\
+        | tee -a "$LOG"
+      echo "Fix wasta-offline/local-cache/${REPO_SERIES}/${ARCH_FOLDER}_NEW"\
+        | tee -a "$LOG"
+    else
+      echo "unknown reason"       | tee -a "$LOG"
+    fi
+  fi
+
+  if [ -x "$REPO_SERIES/${ARCH_FOLDER_OLD}" ]; then
+    echo "++++++++++++++++++++++++++++++++++++++++++++++++++++++"|tee -a "$LOG"
+    echo "DEBUG:the following packages are marked obsolete"      |tee -a "$LOG"
+    ls "$REPO_SERIES/${ARCH_FOLDER_OLD}"                         |tee -a "$LOG"
+    rmdir --ignore-fail-on-non-empty  $REPO_SERIES/${ARCH_FOLDER_OLD} 
+    echo "++++++++++++++++++++++++++++++++++++++++++++++++++++++"|tee -a "$LOG"
+  fi
+) | zenity --progress \
+  --title="wasta [Offline] Setup: Generating Software Package List" \
+  --pulsate --auto-close --width=500 --height=200 \
+  --no-cancel \
+  --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+  --text="Isolating obsolete packages in wasta [Offline]...\n\n\n\n\n"
+else
+  echo | tee -a "$LOG"
+  echo "HINT: put a file named 'clean_me_up.txt' in             "|tee -a "$LOG"
+  echo "$REPO_SERIES/${ARCH_FOLDER} if you want to cleanup      "|tee -a "$LOG"
+  echo "obsolete packages from your wasta-offline local-cache   "|tee -a "$LOG"
+fi  
+
+
+
+echo | tee -a "$LOG"
+echo "--------------------------------------------------------" | tee -a "$LOG"
+echo "*** Generate pkg list for wasta-offline Local Cache Repo" | tee -a "$LOG"
+echo "--------------------------------------------------------" | tee -a "$LOG"
+echo | tee -a "$LOG"
+
+sync
+dpkg-scanpackages --multiversion "$REPO_SERIES/$ARCH_FOLDER" \
+  1> "$REPO_SERIES/$ARCH_FOLDER/Packages.0"  2>> "$LOG" &
+DPKG_PID=$!
+
+(
+  #loop while any process containing dpkg exists (pidof dpkg-scanpackages
+  # did not work: I think the process IDs bounce around, but seems consistent
+  # there is *something* with dpkg in it during this time)
+  sleep 2
+  COUNT=2
+  while [ "$(pgrep dpkg)" ]
+  do
+    echo "#Generating software list for wasta [Offline]...\n\nElapsed Time: $COUNT seconds\n\n\n"
+    sleep 1
+    COUNT=$((COUNT+1))
+  done
+
+  echo | tee -a "$LOG"
+  echo "Info: dpkg-scanpackages took approximately $COUNT seconds"|tee -a "$LOG"
+
+  #flush any unfinished (buffered) writes to the USB before continuing.
+  sync ; sync
+
+) | zenity --progress \
+  --title="wasta [Offline] Setup: Generating Software Package List" \
+  --pulsate --auto-close --width=500 --height=200 \
+  --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+  --text="Generating software list for wasta [Offline]...\n\n\n\n\n"
+
+#check return: if not zero then likely user canceled, 
+#  so need to kill dpkg process
+if [ "$?" -ne 0 ];
+then
+  # kill dpkg-scanpackage process 
+  kill $DPKG_PID
+  echo "killed dpkg-scanpackage process: $DPKG_PID" | tee -a "$LOG"
+  zenity --error --no-wrap --title="wasta [Offline] Setup: Exiting" \
+    --width=500 --height=200 --no-wrap \
+    --text "<b>Software Package Generation Canceled:</b> wasta [Offline] is
+<b>not</b> ready because the listing of software packages was not completed.\n
+<b>wasta [Offline] Setup will now exit.</b>"
+  exit 1
+fi
+
+if [ -s "$REPO_SERIES/$ARCH_FOLDER/Packages.0" ]
+then
+  # filesize is NOT 0 - we have a good Packages file.
+  rm -f "$REPO_SERIES/${ARCH_FOLDER}/Packages"
+  rm -f "$REPO_SERIES/${ARCH_FOLDER}/Packages.gz"
+  rename                      "s/Packages.0/Packages/" \
+    "$REPO_SERIES/${ARCH_FOLDER}/Packages.0" 2>> "$LOG"
+
+  echo | tee -a "$LOG"
+  echo "-------------------------------------------------------" |tee -a "$LOG"
+  echo "*** Compressing Packages file                          " |tee -a "$LOG"
+  echo "-------------------------------------------------------" |tee -a "$LOG"
+  gzip -9c "$REPO_SERIES/$ARCH_FOLDER/Packages" \
+    1> "$REPO_SERIES/$ARCH_FOLDER/Packages.gz" 2>> "$LOG"
+
+else
+  # filesize is 0
+  echo "ERROR:  Probably a corrupt .deb file.  " | tee -a "$LOG"
+  echo "check dpkg-scanpackages log output."     | tee -a "$LOG"
+  echo "Deleting packages.0:"                    | tee -a "$LOG"
+  rm "$REPO_SERIES/$ARCH_FOLDER/Packages.0"           2>> "$LOG"
+  zenity --error --no-wrap --title="wasta [Offline] Setup: Exiting" \
+    --width=500 --height=200 --no-wrap \
+    --text "<b>Software Package Generation Canceled:</b> 
+wasta [Offline] is <b>not</b> ready because the listing of software packages
+was not completed -likely due to a corrupt package- 
+check the log 
+[${LOG}] 
+for dpkg-scanpackage details.
+<b>wasta [Offline] Setup will now exit.</b>"
+  exit 1
+fi
+
+echo | tee -a "$LOG"
+echo "--------------------------------------------------------" | tee -a "$LOG"
+echo $(date +%T) $HOST "wasta-offline-setup complete          " | tee -a "$LOG"
+echo "========================================================" | tee -a "$LOG"
+
+# ------------------------------------------------------------------------------
+# Finished
+# ------------------------------------------------------------------------------
+
+zenity --question --title="wasta [Offline] Setup: Finished" \
+  --width=500 --height=200 --no-wrap \
+  --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+  --text="<b>Finished adding your computer's local software
+cache to wasta [Offline].</b>\n\n
+<i>wasta [Offline] is now ready for local software
+updates or installs on other computers.</i>\n\n
+<b>Would you like to view the log?\n\n</b>"
+
+if [ $? -eq 0 ];
+then
+  #user said YES: show log
+  zenity --text-info --title="wasta [Offline] Setup: Log" --width=650 \
+    --height=500 --no-wrap --filename="$LOG" --font="Ubuntu Mono" \
+    --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png
+fi
+
+exit 0

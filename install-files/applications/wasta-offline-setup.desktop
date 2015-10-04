@@ -1,0 +1,8 @@
+
+[Desktop Entry]
+Name=wasta [Offline] Setup
+Comment=Set up a wasta-offline 'local cache repository'
+Exec=gksu --message '<big><b>Authentication is required to run wasta [Offline] Setup</b></big>\n\nYou must be logged in as an Administrative user to use wasta [Offline] Setup.' wasta-offline-setup
+Type=Application
+Icon=wasta-offline
+Categories=GNOME;GTK;System;Utility;
