@@ -7,8 +7,9 @@ Standards-Version: 3.9.5
 Homepage: https://sites.google.com/site/wastalinux/
 
 Package: wasta-offline-setup
-Architecture: any
-Depends: dpkg-dev, wasta-offline, ${shlibs:Depends}, ${misc:Depends}
+Architecture: all
+Depends: dpkg-dev, gksu, ${shlibs:Depends}, ${misc:Depends}
+Recommends: wasta-offline
 Description: Create or Update a wasta-offline "Local Cache Repository"
  wasta-offline-setup guides a user through creating or updating a wasta-offline
  local cache repository.  A "wasta-offline local cache repository" consists
