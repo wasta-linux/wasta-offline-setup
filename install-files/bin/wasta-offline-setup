@@ -222,7 +222,7 @@ echo "$MSG" | tee -a "$LOG"
 SERIES=$(lsb_release -sc)
 case "$SERIES" in
   precise|maya)
-    #LTS 12.04-based mint 13
+    #LTS 12.04-based Mint 13
     REPO_SERIES="precise"
   ;;
 
@@ -238,15 +238,18 @@ case "$SERIES" in
     REPO_SERIES="saucy"
   ;;
   
-  trusty|qiana|rebecca|rafaela)
-    #LTS 14.04-based mint 17 and mint 17.1
+  trusty|qiana|rebecca|rafaela|rosa)
+    #LTS 14.04-based Mint 17.x
     REPO_SERIES="trusty"
   ;;
+
+  xenial|sarah)
+    #LTS 16.04-based Mint 18.x
+    REPO_SERIES="xenial"
+  ;;
+
   *)
-    # Don't know the series, just go with what is reported (maybe debian)
-    # 14.10 Utopic Unicorn:  no corresponding Mint series, so default is OK
-    # 15.04 Vivid Vervet:    no corresponding Mint series, so default is OK
-    # 15.10 Wily Werewolf:   no corresponding Mint series, so default is OK
+    # Don't know the series, just go with what is reported
     REPO_SERIES=$SERIES
   ;;
 esac
@@ -640,8 +643,8 @@ EOS
 #
 # WARNING: the download path will be wrong if you change the USB name.
 
-# ttf-mscorefonts-installer	msttcorefonts/dldir	string ${DEB_FILES}/non-distributables
-# android-sdk-installer	android-sdk-installer/dldir	string ${DEB_FILES}/non-distributables
+# ttf-mscorefonts-installer     msttcorefonts/dldir     string ${DEB_FILES}/non-distributables
+# android-sdk-installer android-sdk-installer/dldir     string ${DEB_FILES}/non-distributables
 EOS
 
 fi
