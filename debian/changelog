@@ -1,3 +1,9 @@
+wasta-offline-setup (1.1.9.3) precise; urgency=low
+
+   * Add <WO_FOLDER> variable for non-distributables
+
+ -- Justin Luth <jluth@mail.com>  Tue, 26 Apr 2016 16:20:37 +0300
+
 wasta-offline-setup (1.1.9.2) precise; urgency=low
 
   * Recognize Mint Rosa 17.3 and Sarah 18 (16.04)

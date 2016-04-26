@@ -32,7 +32,8 @@
 #   2014-11-11 jcl: add section to isolate obsolete packages in local-cache
 #   2015-01-06 jcl: dpkg-scanpackages hangs on lots of stderr output, so
 #       redirected into $LOG.
-#  2015-06-30 jcl: 1.1.7 support "Rafaela", offline non-distributables
+#   2015-06-30 jcl: 1.1.7 support "Rafaela", offline non-distributables
+#   2016-04-26 jcl: add <WO_FOLDER> placeholder to non-distributables template
 #
 # ==============================================================================
 
@@ -617,16 +618,16 @@ install files. To "discover" the variable name, run "debconf-get-selections".
 A template (preseed.cfg.template) is provided with some known examples.
 
 
-SECOND: If a local cache is supported, the list of files to pre-download is:
+SECOND: If a local cache is supported, try find the list of files to pre-download:
     dpkg --fsys-tarfile "${DEB_FILES}/<package-name_version.deb>" \
     | tar --extract --to-stdout --file - ./usr/share/package-data-downloads
 
-Then download from each URL and place it in "${DEB_FILES}/non-distributables".
+Download from each URL and place it in "${DEB_FILES}/non-distributables".
 Install SHA256 (sudo apt-get install sha256) and verify the checksums
     sha256 "${DEB_FILES}/non-distributables/*"
 
 THIRD: create a file called "preseed.cfg" containing the debconf variables
-that point to ${DEB_FILES}/non-distributables/
+that points to <WO_FOLDER>/local-cache/$REPO_SERIES/$ARCH_FOLDER/non-distributables/
 
 A template (preseed.cfg.template) is provided with some known examples.
 EOS
@@ -641,10 +642,10 @@ EOS
 #
 # use "debconf-get-selections" for a list of the variable names available
 #
-# WARNING: the download path will be wrong if you change the USB name.
+# TIP: use <WO_FOLDER> as a placeholder for the mounted USB/wasta-offline folder
 
-# ttf-mscorefonts-installer     msttcorefonts/dldir     string ${DEB_FILES}/non-distributables
-# android-sdk-installer android-sdk-installer/dldir     string ${DEB_FILES}/non-distributables
+# ttf-mscorefonts-installer     msttcorefonts/dldir     string <WO_FOLDER>/local-cache/$REPO_SERIES/$ARCH_FOLDER/non-distributables
+# android-sdk-installer android-sdk-installer/dldir     string <WO_FOLDER>/local-cache/$REPO_SERIES/$ARCH_FOLDER/non-distributables
 EOS
 
 fi
