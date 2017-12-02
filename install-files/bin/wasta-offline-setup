@@ -27,38 +27,14 @@
 #     minutes on a slow USB making user think it had "hung").
 #     - stripping "commas" from rsync 3.1+ transfer size output for free space
 #     check.
-#   2014-10-15 jcl: added support for mint Rebecca (17.1)
-#   2014-11-10 jcl: bumping to version 1.0
 #   2014-11-11 jcl: add section to isolate obsolete packages in local-cache
 #   2015-01-06 jcl: dpkg-scanpackages hangs on lots of stderr output, so
 #       redirected into $LOG.
 #   2015-06-30 jcl: 1.1.7 support "Rafaela", offline non-distributables
 #   2016-04-26 jcl: add <WO_FOLDER> placeholder to non-distributables template
+#   2017-12-02 jcl: admin permissions were never required: remove gksu prompt
 #
 # ==============================================================================
-
-# ------------------------------------------------------------------------------
-# Check to ensure running as root
-# ------------------------------------------------------------------------------
-if [ $(id -u) -ne 0 ]
-then
-  # OUT will be <blank> if user not in sudo group
-  OUT=$(groups $(whoami) | grep "sudo")
-  if [ "$OUT" ]; then
-    # user has sudo permissions: use them to re-run the script
-    GKSU_MODE=sudo-mode
-  else
-    GKSU_MODE=su-mode
-  fi
-
-  gksu   --${GKSU_MODE}  --message \
-"<big><b>Authentication is required to run wasta [Offline] Setup</b></big>
-
-You must be logged in as an Administrative user to use wasta [Offline] Setup." \
-  wasta-offline-setup "$@"
-
-  exit 0
-fi
 
 # pipefail will make $? contain the rightmost non-zero return, or 0 if all
 #   commands return 0.  Needed for "| tee" commands or else 0 will be the return
@@ -244,7 +220,7 @@ case "$SERIES" in
     REPO_SERIES="trusty"
   ;;
 
-  xenial|sarah)
+  xenial|sarah|serena|sonya|sylvia)
     #LTS 16.04-based Mint 18.x
     REPO_SERIES="xenial"
   ;;

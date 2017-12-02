@@ -1,3 +1,9 @@
+wasta-offline-setup (1.1.9.6) bionic; urgency=low
+
+   * no need for gksu privileges = wayland fix
+
+ -- Justin Luth <jluth@mail.com>  Sat, 2 Dec 2017 12:20:37 +0300
+
 wasta-offline-setup (1.1.9.5) bionic; urgency=low
 
    * Add "rename" as a dependency for bionic
