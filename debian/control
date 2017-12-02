@@ -2,13 +2,13 @@ Source: wasta-offline-setup
 Section: utils
 Priority: extra
 Maintainer: Rik Shaw <rikshaw76@gmail.com>
-Build-Depends: debhelper (>= 8.0.0)
-Standards-Version: 3.9.5
+Build-Depends: debhelper (>= 9.0.0)
+Standards-Version: 3.9.7
 Homepage: https://sites.google.com/site/wastalinux/
 
 Package: wasta-offline-setup
 Architecture: all
-Depends: dpkg-dev, gksu, perl (<< 5.22.1-9) | rename, ${shlibs:Depends}, ${misc:Depends}
+Depends: dpkg-dev, gksu, perl (<< 5.22.1-9) | rename, rsync, zenity, ${shlibs:Depends}, ${misc:Depends}
 Recommends: wasta-offline
 Description: Create or Update a wasta-offline "Local Cache Repository"
  wasta-offline-setup guides a user through creating or updating a wasta-offline
