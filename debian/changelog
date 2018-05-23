@@ -1,3 +1,9 @@
+wasta-offline-setup (1.1.9.7) bionic; urgency=medium
+
+  * remove gksu dependency from debian/control
+
+ -- Justin Luth <jluth@mail.com>  Wed, 23 May 2018 10:13:02 +0300
+
 wasta-offline-setup (1.1.9.6) bionic; urgency=low
 
    * no need for gksu privileges = wayland fix
