@@ -1,0 +1,321 @@
+#!/bin/bash
+
+# =============================================================================
+# This script should:
+#   1. Find all installed snaps and determine their revision numbers.
+#   2. Create dictionary of snaps and top revision #s present in offline folder.
+#   3. Copy the .snap file to the offline folder (adding the version number)
+#       if the revision number is greater than the highest one already present.
+#   4. Create* .assert files for each snap copied to the offline folder.
+#   5. Copy any relevant snaps and asserts stored in /var/lib/snapd/seed.
+#   6. Delete old revisions, keeping only the X most recent ones (2 by default).
+#
+# The result in the offline folder should look like this:
+#   snap1_23.assert
+#   snap1_23.snap
+#   snap2_157.assert
+#   snap2_157.snap
+#   ...
+#
+# *Assert files
+#   It seems that snaps installed directly from the internet do not save an
+#   assert file locally. Seeded snaps in /var/lib/snapd/seed do have assert
+#   files, as well as snaps downloaded via $ snap download [snap]. But if one
+#   wants to copy an online-installed snap to another machine, then an assert
+#   file is needed.
+#   
+#   When using $ snap download [snap], if the snap is already present in the
+#   PWD, then only the assert file will be downloaded. I don't know if the
+#   command verifies the integrity of the snap file, though.
+#   However, wasta-offline-snap-setup (like wasta-offline-setup) shouldn't be
+#   dependent on an internet connection. Therefore, an assert file has to be
+#   created for that snap from locally-available information.
+#
+# A snap's assert file has either 3 or 4 parts:
+#   1. account-key (Canonical store info)
+#   2. account (publisher info, if not published by Canonical)
+#   3. snap-declaration (general snap info)
+#   4. snap-revision (info specific to given revision number)
+#
+# =============================================================================
+
+
+USAGE_TEXT="usage: $0 [OPTIONS] [/path/to/dest]"
+HELP_TEXT="$USAGE_TEXT
+
+This app copies local snaps and assert files to a given destination for
+installation on other systems. If no options or args are passed, the
+destination will be requested interactively.
+    
+    -h              Show this help text.
+    -k [number]     Choose how many snap revisions to keep. Default is 2.
+    /path/to/dest   Directory for storing offline snaps.
+"
+
+# Default number of snap revisions kept in offline folder.
+max=2
+
+while getopts ":hk:" opt; do
+    case $opt in
+        h) # help requested
+            echo "$HELP_TEXT"
+            exit 0
+            ;;
+        k) # max num of kept snaps specified
+            if [[ $OPTARG -ge 1 ]]; then
+                max="$OPTARG"
+            else
+                echo "Error: At least 1 revision of each snap must be kept."
+                exit 1
+            fi
+            ;;
+        /?) # invalid option
+            echo "$USAGE_TEXT"
+            exit 1
+    esac
+done
+shift $((OPTIND-1))
+
+if [[ -w $1 ]]; then
+    snaps_dir="$1"
+else
+    echo "Destination not writable or not available."
+fi
+
+while [[ ! -w $snaps_dir ]]; do
+    read -p "Please give destination directory: " snaps_dir
+    if [[ ! -w $snaps_dir ]]; then
+        read -p "Directory not writable. Try again: " snaps_dir
+    fi
+done
+
+
+# snapd API docs: https://docs.ubuntu.com/core/en/reference/rest
+# snapd's API is at:
+api_addr="http://localhost"
+SNAPD=/var/lib/snapd
+
+# Define functions.
+# ---------------------------------------------------------------------------
+# Create assert file of installed snap. These only get created if the
+#   corresponding .snap file is copied to the snaps_dir.
+create_assert_file() {
+    name="$1"
+    snap_rev="$2"
+    acct_id="$3"
+
+    # Get snap ID.
+    snap_id=$(snap info "$name" | grep 'snap-id' | tr -s ' ' | cut -d' ' -f2)
+
+    # Get account-key info of given snap.
+    snap_key_info=$(snap known account-key account-id=canonical name=store)
+
+    # Get snap-declaration info.
+    snap_decl_info=$(snap known snap-declaration snap-id="$snap_id")
+
+    # Get account info if non-Canonical snap.
+    acct_id=$(echo "$snap_decl_info" | grep 'publisher-id:' \
+        | tr -s ' ' | cut -d' ' -f2)
+
+    # Canonical snaps' account ID is "canonical". Otherwise it's a long key string.
+    if [[ $acct_id != 'canonical' ]]; then
+        snap_acct_info=$(snap known account account-id="$acct_id")
+    fi
+
+    # Get snap revision info.
+    snap_rev_info=$(snap known snap-revision snap-id="$snap_id" snap-revision="$snap_rev")
+
+    # Create assert file.
+    outfile="$snaps_dir"/"${name}_${snap_rev}.assert"
+
+    echo "$snap_key_info" > "$outfile"
+    echo >> "$outfile"
+
+    if [[ $acct_id != 'canonical' ]]; then
+        echo "$snap_acct_info" >> "$outfile"
+        echo >> "$outfile"
+    fi
+
+    echo "$snap_decl_info" >> "$outfile"
+    echo >> "$outfile"
+
+    echo "$snap_rev_info" >> "$outfile"
+    }
+
+
+# 1. Find all installed snaps and revision numbers.
+# ---------------------------------------------------------------------------
+echo "Listing installed snaps..."
+# Get list of snaps currently installed.
+installed_list=$(snap list | grep -v Name | tr -s ' ' | cut -d' ' -f1)
+
+# Store each snap name in a dictionary with its revision number, and in
+#   another dictionary with its store account ID (needed for assert files).
+declare -A snaps_inst
+declare -A snaps_acct
+for i in ${installed_list[@]}; do
+    rev=$(snap list "$i" | grep -v Name | tr -s ' ' | cut -d' ' -f3)
+    snaps_inst["$i"]="$rev"
+
+    acct_id=$(snap list "$i" | grep -v Name | tr -s ' ' | cut -d' ' -f5)
+    acct_id="${acct_id//✓}"
+    snaps_acct["$i"]="$acct_id"
+done
+
+
+# 2. Create dictionary of snaps and top revision #s present in offline folder.
+# ---------------------------------------------------------------------------
+# Get offline snaps in snaps_dir.
+echo "Listing snaps in offline folder..."
+available_list=$(find "$snaps_dir"/ -name '*.snap')
+# Build associative array of available snaps and revisions in snaps_dir.
+#   The revision numbers are space-delimited; e.g. ("[skype]"="54 57 ").
+declare -A snaps_avail
+for a in ${available_list[@]}; do
+    name_rev=${a##*/}
+    name_rev=${name_rev%.snap}
+    rev=${name_rev##*_}
+    name=${name_rev%_*}
+    snaps_avail["$name"]+="$rev "
+done
+
+# Sort revisions listed for each snap, choose highest one.
+declare -A snaps_top
+for a in ${!snaps_avail[@]}; do
+    top=$(
+        for r in ${snaps_avail[$a]}; do
+            echo $r
+        done | sort -nr | head -1
+        )
+    snaps_top["$a"]="$top"
+done
+
+
+# 3. Copy relevant snap files (with revision numbers) to the offline folder.
+# ---------------------------------------------------------------------------
+# Copy installed snaps with higher revision numbers to snaps_dir.
+echo "Copying installed snaps to offline folder..."
+snap_base="$SNAPD"/snaps
+# Build dictionary of copied snaps and revision numbers.
+declare -A snaps_copied
+for a in ${!snaps_inst[@]}; do
+    name="$a"
+    rev="${snaps_inst[$a]}"
+    # First check to see if installed snap has a revision in snaps_dir.
+    if [[ ${snaps_avail[$a]} ]]; then
+        # If so, then check if installed revision is higher than available one.
+        if [[ $rev -gt ${snaps_top[$a]} ]]; then
+            # If so, copy snap to snaps_dir.
+            echo "- Copying $name to $snaps_dir..."
+            cp "$snap_base"/"${name}_${rev}.snap" "$snaps_dir"/
+            snaps_copied["$a"]="$rev"
+        fi
+    else
+        # If not, copy snap to snaps_dir.
+        echo "- Copying $name to $snaps_dir..."
+        cp "$snap_base"/"${name}_${rev}.snap" "$snaps_dir"/
+        snaps_copied["$a"]="$rev"
+    fi
+done
+
+
+# 4. Create assert file for each snap copied to the snaps_dir folder.
+# ---------------------------------------------------------------------------
+echo "Creating assert files in offline folder..."
+for c in ${!snaps_copied[@]}; do
+    name="$c"
+    revision="${snaps_copied[$c]}"
+    acct_id="${snaps_acct[$c]}"
+    echo "- Creating assert file for $name..."
+    create_assert_file "$name" "$revision" "$acct_id"
+done
+
+
+# 5. Copy seeded snaps with higher revision numbers to snaps_dir.
+# ---------------------------------------------------------------------------
+echo "Copying seeded snaps to offline folder..."
+seed_base="$SNAPD"/seed
+# Build dictionary of seeded snaps and revision numbers.
+snaps_seeded_list=$(find "$seed_base"/snaps/ -name '*.snap')
+declare -A snaps_seeded
+for s in ${snaps_seeded_list[@]}; do
+    filename="${s##*/}"
+    name="${filename%_*}"
+    rev="${filename//.snap}"
+    rev="${rev##*_}"
+    snaps_seeded["$name"]="$rev"
+done
+
+for a in ${!snaps_seeded[@]}; do
+    name="$a"
+    rev="${snaps_seeded[$a]}"
+    # First check to see if seeded snap has a revision in snaps_dir.
+    if [[ ${snaps_avail[$a]} ]]; then
+        # If so, then check if seeded revision is higher than available one.
+        if [[ $rev -gt ${snaps_top[$a]} ]]; then
+            # If so, copy snap and assert to snaps_dir.
+            echo "- Copying $name to $snaps_dir..."
+            cp "$seed_base"/snaps/"${name}_${rev}.snap" "$snaps_dir"/
+            cp "$seed_base"/assertions/"${name}_${rev}.assert" "$snaps_dir"/
+            snaps_copied["$a"]="$rev"
+        fi
+    else
+        # If not, copy snap and assert to snaps_dir.
+        echo "- Copying $name to $snaps_dir..."
+        cp "$seed_base"/snaps/"${name}_${rev}.snap" "$snaps_dir"/
+        cp "$seed_base"/assertions/"${name}_${rev}.assert" "$snaps_dir"/
+        snaps_copied["$a"]="$rev"
+    fi
+done
+
+
+# 6. Delete old revisions, keeping only the $max most recent ones.
+# ---------------------------------------------------------------------------
+# Get snaps in offline directory.
+echo "Listing snaps in offline folder..."
+available_list=$(find "$snaps_dir"/ -name '*.snap')
+# Build dictionary of offline snaps and revisions in snaps_dir.
+#   The revision numbers are space-delimited; e.g. ("[skype]"="54 57 ").
+declare -A snaps_offline
+for a in ${available_list[@]}; do
+    name_rev=${a##*/}
+    name_rev=${name_rev%.snap}
+    rev=${name_rev##*_}
+    name=${name_rev%_*}
+    snaps_offline["$name"]+="$rev "
+done
+
+# Sort revisions listed for each snap. Remove all but $max higest revisions.
+echo "Removing old snap versions..."
+# Create dictionary of snaps and revisions to be removed.
+declare -A snaps_removed
+#declare -A snaps_kept
+for s in ${!snaps_offline[@]}; do
+    sorted=$(
+        for r in ${snaps_offline[$s]}; do
+            echo $r
+        done | sort -nr
+        )
+    count=1
+    for i in ${sorted[@]}; do
+        if [[ $count -le $max ]]; then
+            #echo "keeping $s rev $i"
+            #snaps_kept["$s"]+="$i "
+            ((count += 1))
+        else
+            #echo "removing $s rev $i"
+            snaps_removed["$s"]+="$i "
+        fi
+    done
+done
+
+# Remove all snaps and asserts of given revision numbers.
+for n in ${!snaps_removed[@]}; do
+    for r in ${snaps_removed[$n]}; do
+        rm -f "$snaps_dir"/"${n}_${r}.snap"
+        rm -f "$snaps_dir"/"${n}_${r}.assert"
+    done
+done
+
+echo "Done."
+exit 0
