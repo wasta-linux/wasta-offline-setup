@@ -39,6 +39,13 @@
 #
 # =============================================================================
 
+# Require root privileges.
+if [ $(id -u) -ne 0 ]; then
+    # Filling in for now for more elaborate handling.
+    echo "This script needs to be run with root privileges. Exiting."
+    exit 1
+fi
+
 
 USAGE_TEXT="usage: $0 [OPTIONS] [/path/to/dest]"
 HELP_TEXT="$USAGE_TEXT
@@ -89,7 +96,8 @@ while [[ ! -w $snaps_dir ]]; do
     fi
 done
 
-
+#TODO: I had used the API until I found out about $ snap known [...].
+#   This can be removed if it ends up being ultimately useless.
 # snapd API docs: https://docs.ubuntu.com/core/en/reference/rest
 # snapd's API is at:
 api_addr="http://localhost"
@@ -193,6 +201,11 @@ done
 
 # 3. Copy relevant snap files (with revision numbers) to the offline folder.
 # ---------------------------------------------------------------------------
+# Files in /var/lib/snapd/snaps are supposed to be 0600 root:root, even if some
+#   are 0644 root:root (holdovers from old policy). The other option at
+#   /var/lib/snapd/cache is even more restricted with the folder being 0700.
+#   It looks like this script will need sudo privileges in the end.
+#   https://forum.snapcraft.io/t/permissions-of-snap-files-in-var-lib-snapd-snaps/1462/3
 # Copy installed snaps with higher revision numbers to snaps_dir.
 echo "Copying installed snaps to offline folder..."
 snap_base="$SNAPD"/snaps
@@ -316,6 +329,12 @@ for n in ${!snaps_removed[@]}; do
         rm -f "$snaps_dir"/"${n}_${r}.assert"
     done
 done
+
+# Fix permissions of offline folder contents.
+# Surely we don't want to assume it will always be a FAT-formatted USB that
+#   will ignore Linux permissions when put in another machine (or shared over
+#   a network).
+chmod 666 "$snaps_dir"/*
 
 echo "Done."
 exit 0
