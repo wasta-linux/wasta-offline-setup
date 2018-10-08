@@ -2,13 +2,14 @@
 
 # =============================================================================
 # This script should:
-#   1. Find all installed snaps and determine their revision numbers.
-#   2. Create dictionary of snaps and top revision #s present in offline folder.
-#   3. Copy the .snap file to the offline folder (adding the version number)
-#       if the revision number is greater than the highest one already present.
-#   4. Create* .assert files for each snap copied to the offline folder.
-#   5. Copy any relevant snaps and asserts stored in /var/lib/snapd/seed.
-#   6. Delete old revisions, keeping only the X most recent ones (2 by default).
+# 1. Create a dictionary of ([$snap]="$revision $parent_folder") for local snaps.
+#       Start with seeds.
+#       Add/overwrite from installed snaps, keeping highest revisions.
+# 2. Create a dictionary of snaps and revisions in SNAPS_DIR
+# 3. Determine which snaps should be copied.
+# 4. Create assert files for all installed snaps that should be copied.
+# 5. Copy each snap and its assert to SNAPS_DIR.
+# 6. Remove extra snaps from SNAPS_DIR.
 #
 # The result in the offline folder should look like this:
 #   snap1_23.assert
@@ -40,6 +41,7 @@
 # =============================================================================
 
 # Require root privileges.
+# -----------------------------------------------------------------------------
 if [ $(id -u) -ne 0 ]; then
     # Filling in for now for more elaborate handling.
     echo "This script needs to be run with root privileges. Exiting."
@@ -47,6 +49,8 @@ if [ $(id -u) -ne 0 ]; then
 fi
 
 
+# Set global variables
+# -----------------------------------------------------------------------------
 USAGE_TEXT="usage: $0 [OPTIONS] [/path/to/dest]"
 HELP_TEXT="$USAGE_TEXT
 
@@ -62,6 +66,7 @@ destination will be requested interactively.
 # Default number of snap revisions kept in offline folder.
 max=2
 
+# Evaluate options.
 while getopts ":hk:" opt; do
     case $opt in
         h) # help requested
@@ -82,19 +87,88 @@ while getopts ":hk:" opt; do
     esac
 done
 shift $((OPTIND-1))
+SNAPS_DIR="$1"
 
-if [[ -w $1 ]]; then
-    snaps_dir="$1"
-else
-    echo "Destination not writable or not available."
-fi
+# Determine SNAPS_DIR. If no arg passed, give initial prompt and then prompt for folder.
+while [[ ! -w "$SNAPS_DIR" ]]; do
+    zenity --question --no-wrap --height=200 --width=500 \
+        --title="wasta [Offline] Snap Setup" \
+        --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+        --text="<b>Use wasta [Offline] Snap Setup to add your computer's
+<u>local snap cache</u> to wasta [Offline]?</b>\n
 
-while [[ ! -w $snaps_dir ]]; do
-    read -p "Please give destination directory: " snaps_dir
-    if [[ ! -w $snaps_dir ]]; then
-        read -p "Directory not writable. Try again: " snaps_dir
+<i>You will be prompted to <b>either</b>:</i>\n
+  <b>* Select</b> an <b>existing</b> <i>'wasta-offline'</i>  folder <b>or</b>\n
+  <b>* Create</b> (and then <b>Select</b>) a folder of your choice.\n"
+    if [ "$?" -ne 0 ]; then
+        # User didn't say yes: exit.
+        exit 1
+    fi
+
+    text="Searching system for wasta-offline folder..."
+    title="wasta [Offline] Snap Setup: Searching"
+    prog_opts="--progress --pulsate --auto-close --auto-kill --no-cancel"
+    # Using SUDO_USER to try to limit the scope of the 'find' command below.
+    #   Convoluted yet functional zenity subprocess inspired by this article:
+    #   http://wiki.bash-hackers.org/zenity_--progress
+    wo_list=$(sudo -u $SUDO_USER find / -name 'wasta-offline' -type d 2>/dev/null \
+        | tee >(zenity ${prog_opts[@]} --title="$title" --text="$text"))
+    for d in ${wo_list[@]}; do
+        loc_cache=$(find "$d" -name 'local-cache' -type d 2>/dev/null)
+        if [[ $loc_cache =~ ^/media/.*$ ]]; then
+            # Automatically accept 'wasta-offline' folder in /media/...
+            START_FOLDER="$d"
+            break
+        elif [[ $loc_cache ]]; then
+            # Accept other 'wasta-offlne' folder, but let one in /media/... overrule it.
+            #   In case there are more than two qualifiers, the last one found wins.
+            START_FOLDER="$d"
+        else
+            # No existing wasta-offline folder found.
+            START_FOLDER="/home/$SUDO_USER"
+        fi
+    done
+
+    MSG+="
+
+start folder: $START_FOLDER"
+  
+    FOLDER_SEL=$(zenity --file-selection \
+        --directory --filename="$START_FOLDER" \
+        --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+        --title="Select or Create a destination folder")
+    if [[ $? -gt 0 ]]; then
+        # User clicked "Cancel". Exit.
+        exit 1
+    elif [[ -w $FOLDER_SEL ]]; then
+        SNAPS_DIR="$FOLDER_SEL"
+
+        MSG+="
+
+wasta-offline snaps location: $SNAPS_DIR"
+    else
+        # Not likely to have selected a folder unwriteable by root, but just in case.
+        zenity --error --width=500 --height=200 --no-wrap \
+          --title="wasta [Offline] Snaps Setup: Invalid folder" \
+          --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+          --text="<b>Selected Folder:</b> $FOLDER_SEL\n
+Files cannot be created in this folder.\n
+Please choose again."
+        if [[ $? -gt 0 ]]; then
+            # User chose "Cancel". Exiting.
+            exit 1
+        fi
     fi
 done
+
+# Need to be able to handle 2 types of SNAPS_DIRs:
+#   1. "wasta-offline" folder -> Set SNAPS_DIR as wasta-offline/local-cache/snaps.
+#   2. any other folder passed -> Keep SNAPS_DIR as-is.
+if [[ $SNAPS_DIR =~ ^.*wasta-offline/*$ ]]; then
+    SNAPS_DIR="$SNAPS_DIR"/local-cache/snaps
+    # Make sure SNAPS_DIR exists.
+    mkdir -p $SNAPS_DIR
+fi
 
 #TODO: I had used the API until I found out about $ snap known [...].
 #   This can be removed if it ends up being ultimately useless.
@@ -102,18 +176,22 @@ done
 # snapd's API is at:
 api_addr="http://localhost"
 SNAPD=/var/lib/snapd
+SEEDS="$SNAPD"/seed
+SNAPS="$SNAPD"/snaps
+TEMPLATE="wo-snap.XXXX"
+
 
 # Define functions.
 # ---------------------------------------------------------------------------
 # Create assert file of installed snap. These only get created if the
-#   corresponding .snap file is copied to the snaps_dir.
+#   corresponding .snap file is copied to the SNAPS_DIR.
 create_assert_file() {
-    name="$1"
-    snap_rev="$2"
-    acct_id="$3"
+    snap="$1"
+    rev="$2"
+    dest="$3"
 
     # Get snap ID.
-    snap_id=$(snap info "$name" | grep 'snap-id' | tr -s ' ' | cut -d' ' -f2)
+    snap_id=$(snap info "$snap" | grep 'snap-id' | tr -s ' ' | cut -d' ' -f2)
 
     # Get account-key info of given snap.
     snap_key_info=$(snap known account-key account-id=canonical name=store)
@@ -122,24 +200,24 @@ create_assert_file() {
     snap_decl_info=$(snap known snap-declaration snap-id="$snap_id")
 
     # Get account info if non-Canonical snap.
-    acct_id=$(echo "$snap_decl_info" | grep 'publisher-id:' \
+    pub_id=$(echo "$snap_decl_info" | grep 'publisher-id:' \
         | tr -s ' ' | cut -d' ' -f2)
 
     # Canonical snaps' account ID is "canonical". Otherwise it's a long key string.
-    if [[ $acct_id != 'canonical' ]]; then
-        snap_acct_info=$(snap known account account-id="$acct_id")
+    if [[ $pub_id != 'canonical' ]]; then
+        snap_acct_info=$(snap known account account-id="$pub_id")
     fi
 
     # Get snap revision info.
-    snap_rev_info=$(snap known snap-revision snap-id="$snap_id" snap-revision="$snap_rev")
+    snap_rev_info=$(snap known snap-revision snap-id="$snap_id" snap-revision="$rev")
 
     # Create assert file.
-    outfile="$snaps_dir"/"${name}_${snap_rev}.assert"
+    outfile="$dest"/"${snap}_${rev}.assert"
 
     echo "$snap_key_info" > "$outfile"
     echo >> "$outfile"
 
-    if [[ $acct_id != 'canonical' ]]; then
+    if [[ $pub_id != 'canonical' ]]; then
         echo "$snap_acct_info" >> "$outfile"
         echo >> "$outfile"
     fi
@@ -150,37 +228,105 @@ create_assert_file() {
     echo "$snap_rev_info" >> "$outfile"
     }
 
+# Exit script nicely by cleaning up.
+script_exit() {
+    ec="$1"
+    pid_to_kill="$2"
+    
+    # Kill the passed process.
+    if [[ $pid_to_kill ]]; then
+        kill "$pid_to_kill"
+    fi
+    
+    # Remove temp files.
+    rm -r /tmp/${TEMPLATE%.*}*
+    
+    # Remove non-777 files from $SNAPS_DIR (incomplete copy).
+    #TODO: This needs to be tested on a FAT drive.
+    find "$SNAPS_DIR" -perm 600 -exec rm '{}' \;
+    #TODO: Possibly remove snaps that don't have asserts.
+    #TODO: Possibly remove asserts that don't have snaps.
+    
+    exit "$ec"
+    }
 
-# 1. Find all installed snaps and revision numbers.
+
+# Show progress of slow-moving subprocess using zenity dialog.
+show_progress() {
+    proc_pid="$1"
+    data_src="$2"
+    dest_dir="$3"
+    info_txt="${@:4}"
+
+    title="wasta [Offline] Snap Setup"
+    prog_opts="--progress --auto-close --width=400"
+
+    while [[ $(ps --no-headers -p $proc_pid) ]]; do
+        ec=$(tail -n1 "$data_src" | cut -f1)
+        prog=$(tail -n1 "$data_src" | cut -f2)
+        snap=$(tail -n1 "$data_src" | cut -f3)
+        rev=$(tail -n1 "$data_src" | cut -f4)
+        
+        if [[ $ec -gt 0 ]]; then
+            #return "$ec"
+            script_exit "$ec" "$proc_pid"
+        fi
+        
+        echo "$prog"
+        echo "#$info_txt $snap..."
+        sleep 0.2
+    done | zenity ${prog_opts[@]} --title="$title" 2>/dev/null
+    }
+
+
+# 1. Find all installed and seeded snaps, plus other useful details.
 # ---------------------------------------------------------------------------
-echo "Listing installed snaps..."
-# Get list of snaps currently installed.
-installed_list=$(snap list | grep -v Name | tr -s ' ' | cut -d' ' -f1)
+echo "Listing installed and seeded snaps..."
 
-# Store each snap name in a dictionary with its revision number, and in
-#   another dictionary with its store account ID (needed for assert files).
-declare -A snaps_inst
-declare -A snaps_acct
-for i in ${installed_list[@]}; do
-    rev=$(snap list "$i" | grep -v Name | tr -s ' ' | cut -d' ' -f3)
-    snaps_inst["$i"]="$rev"
+# Get list of seeded snaps in /var/lib/snapd/seed
+seed_list=$(find "$SEEDS"/snaps -name '*.snap' 2>/dev/null)
 
-    acct_id=$(snap list "$i" | grep -v Name | tr -s ' ' | cut -d' ' -f5)
-    acct_id="${acct_id//✓}"
-    snaps_acct["$i"]="$acct_id"
+# Add these snap names to $snaps_local dictionary.
+declare -A snaps_local
+for i in ${seed_list[@]}; do
+    filename="${i##*/}"
+    filetitle="${filename//.*}"
+    snap="${filetitle%_*}"
+    rev="${filetitle##*_}"
+    size=$(stat --printf="%s" "$i")
+    # Add "S" after to flag the snap as "seeded" rather than "installed".
+    snaps_local["$snap"]="$rev $size S"
 done
+
+# Get list of snaps currently installed.
+#installed_list=$(snap list --all | grep -v Name)
+installed_list=$(snap list | grep -v Name)
+
+# Add these snap names to $snaps_local dictionary. Installed snaps will replace
+#   seeded snaps of the same name. Installed snaps should always have an equal
+#   or higher revision number than seeded snaps, so no problem.
+while read -r line; do
+    snap=$(echo "$line" | tr -s ' ' | cut -d' ' -f1)
+    rev=$(echo "$line" | tr -s ' ' | cut -d' ' -f3)
+    #pub=$(echo "$line" | tr -s ' ' | cut -d' ' -f5)
+    #pub="${pub//✓}"
+    fileloc=$SNAPS/${snap}_${rev}.snap
+    size=$(stat --printf="%s" "$fileloc")
+    # "I" refers to snap state "installed" as opposed to "seeded".
+    #snaps_local["$snap"]="$rev $size I $pub"
+    snaps_local["$snap"]="$rev $size I"
+done <<< "$installed_list"
 
 
 # 2. Create dictionary of snaps and top revision #s present in offline folder.
 # ---------------------------------------------------------------------------
-# Get offline snaps in snaps_dir.
-echo "Listing snaps in offline folder..."
-available_list=$(find "$snaps_dir"/ -name '*.snap')
-# Build associative array of available snaps and revisions in snaps_dir.
+# Get offline snaps in $SNAPS_DIR.
+available_list=$(find "$SNAPS_DIR"/ -name '*.snap')
+# Build associative array of available snaps and revisions in SNAPS_DIR.
 #   The revision numbers are space-delimited; e.g. ("[skype]"="54 57 ").
 declare -A snaps_avail
-for a in ${available_list[@]}; do
-    name_rev=${a##*/}
+for i in ${available_list[@]}; do
+    name_rev=${i##*/}
     name_rev=${name_rev%.snap}
     rev=${name_rev##*_}
     name=${name_rev%_*}
@@ -189,105 +335,181 @@ done
 
 # Sort revisions listed for each snap, choose highest one.
 declare -A snaps_top
-for a in ${!snaps_avail[@]}; do
+for snap in ${!snaps_avail[@]}; do
     top=$(
-        for r in ${snaps_avail[$a]}; do
+        for r in ${snaps_avail[$snap]}; do
             echo $r
         done | sort -nr | head -1
         )
-    snaps_top["$a"]="$top"
+    snaps_top["$snap"]="$top"
 done
 
 
-# 3. Copy relevant snap files (with revision numbers) to the offline folder.
+# 3. Determine relevant snaps (and assert files) to copy over.
 # ---------------------------------------------------------------------------
 # Files in /var/lib/snapd/snaps are supposed to be 0600 root:root, even if some
 #   are 0644 root:root (holdovers from old policy). The other option at
 #   /var/lib/snapd/cache is even more restricted with the folder being 0700.
 #   It looks like this script will need sudo privileges in the end.
 #   https://forum.snapcraft.io/t/permissions-of-snap-files-in-var-lib-snapd-snaps/1462/3
-# Copy installed snaps with higher revision numbers to snaps_dir.
-echo "Copying installed snaps to offline folder..."
-snap_base="$SNAPD"/snaps
-# Build dictionary of copied snaps and revision numbers.
-declare -A snaps_copied
-for a in ${!snaps_inst[@]}; do
-    name="$a"
-    rev="${snaps_inst[$a]}"
-    # First check to see if installed snap has a revision in snaps_dir.
-    if [[ ${snaps_avail[$a]} ]]; then
+echo "Preparing to copy newest snaps and assert files to $SNAPS_DIR."
+
+# Determine which local snaps are eligible to be copied.
+declare -A snaps_to_copy
+for snap in ${!snaps_local[@]}; do
+    data=${snaps_local[$snap]}
+    rem3=${data#* }
+    rem2=${rem3#* }
+
+    rev=${data%% *}
+    size=${rem3%% *}
+    state=${rem2% *}
+
+    # Check to see if local snap has a revision in SNAPS_DIR.
+    if [[ ${snaps_avail[$snap]} ]]; then
         # If so, then check if installed revision is higher than available one.
-        if [[ $rev -gt ${snaps_top[$a]} ]]; then
-            # If so, copy snap to snaps_dir.
-            echo "- Copying $name to $snaps_dir..."
-            cp "$snap_base"/"${name}_${rev}.snap" "$snaps_dir"/
-            snaps_copied["$a"]="$rev"
+        if [[ $rev -gt ${snaps_top[$snap]} ]]; then
+            # If so, add snap to $snaps_to_copy.
+            snaps_to_copy["$snap"]="$rev $size $state"
         fi
     else
-        # If not, copy snap to snaps_dir.
-        echo "- Copying $name to $snaps_dir..."
-        cp "$snap_base"/"${name}_${rev}.snap" "$snaps_dir"/
-        snaps_copied["$a"]="$rev"
+        # If not, add snap to lists to be copied.
+        snaps_to_copy["$snap"]="$rev $size $state"
     fi
 done
 
 
-# 4. Create assert file for each snap copied to the snaps_dir folder.
+# 4. Create asserts for installed snaps; store in /tmp folder
 # ---------------------------------------------------------------------------
-echo "Creating assert files in offline folder..."
-for c in ${!snaps_copied[@]}; do
-    name="$c"
-    revision="${snaps_copied[$c]}"
-    acct_id="${snaps_acct[$c]}"
-    echo "- Creating assert file for $name..."
-    create_assert_file "$name" "$revision" "$acct_id"
+echo "Creating assert files for installed snaps..."
+
+# Send assert creation to the background & log output to tempfile.
+tmp_asserts_dir=$(mktemp -d "$TEMPLATE" --tmpdir)
+#TODO: The output to this tempfile should probably go to a log file instead.
+tmp_asserts=$(mktemp "$TEMPLATE" --tmpdir)
+total_ct=${#snaps_to_copy[@]}
+(
+ct=0
+for snap in ${!snaps_to_copy[@]}; do
+    data=${snaps_to_copy[$snap]}
+    rem3=${data#* }
+    rem2=${rem3#* }
+    
+    rev=${data%% *}
+    state=${rem2% *}
+    # Only snaps with [[ state == I ]] need an accompanying assert file.
+    if [[ $state != 'I' ]]; then
+        continue
+    fi
+
+    prog=$(($ct*100/$total_ct))
+    echo "- creating assert file for $snap..."
+    echo -e "0\t$prog\t$snap" >> "$tmp_asserts"
+    create_assert_file "$snap" "$rev" "$tmp_asserts_dir"
+    ((ct += 1))
+done
+) &
+ASSERT_PID=$!
+
+# Read tempfile to get data for Zenity progress dialog while ASSERT_PID exists.
+show_progress "$ASSERT_PID" "$tmp_asserts" "none" "Creating assert file for"
+# For some reason this doesn't kill the subprocess if included within the show_progress function.
+ec=$?
+if [[ $ec -gt 0 ]]; then
+    script_exit "$ec" "$ASSERT_PID"
+fi
+
+# Calculate total size of all snaps to be copied for use in progress window.
+#   We could try to include assert sizes in this calculation, but that's a lot
+#   of work when you consider that each one is less than 6 KiB.
+total_bytes_to_copy=0
+for snap in ${!snaps_to_copy[@]}; do
+    data=${snaps_to_copy[$snap]}
+    rem3=${data#* }
+    size=${rem3%% *}
+    ((total_bytes_to_copy += $size))
 done
 
-
-# 5. Copy seeded snaps with higher revision numbers to snaps_dir.
+# 5. Copy eligible snaps and asserts, checking disk space before each one.
 # ---------------------------------------------------------------------------
-echo "Copying seeded snaps to offline folder..."
-seed_base="$SNAPD"/seed
-# Build dictionary of seeded snaps and revision numbers.
-snaps_seeded_list=$(find "$seed_base"/snaps/ -name '*.snap')
-declare -A snaps_seeded
-for s in ${snaps_seeded_list[@]}; do
-    filename="${s##*/}"
-    name="${filename%_*}"
-    rev="${filename//.snap}"
-    rev="${rev##*_}"
-    snaps_seeded["$name"]="$rev"
-done
+# Show zenity progress based on bytes copied.
+tmp_copy=$(mktemp "$TEMPLATE" --tmpdir)
+bytes_copied=0
+(
+# Copy each snap only if there is enough room on SNAPS_DIR disk.
+for snap in ${!snaps_to_copy[@]}; do
+    data=${snaps_to_copy[$snap]}
+    rem3=${data#* }
+    rem2=${rem3#* }
 
-for a in ${!snaps_seeded[@]}; do
-    name="$a"
-    rev="${snaps_seeded[$a]}"
-    # First check to see if seeded snap has a revision in snaps_dir.
-    if [[ ${snaps_avail[$a]} ]]; then
-        # If so, then check if seeded revision is higher than available one.
-        if [[ $rev -gt ${snaps_top[$a]} ]]; then
-            # If so, copy snap and assert to snaps_dir.
-            echo "- Copying $name to $snaps_dir..."
-            cp "$seed_base"/snaps/"${name}_${rev}.snap" "$snaps_dir"/
-            cp "$seed_base"/assertions/"${name}_${rev}.assert" "$snaps_dir"/
-            snaps_copied["$a"]="$rev"
+    rev=${data%% *}
+    size=${rem3%% *}
+    state=${rem2% *}
+    
+    # Get size of available space (in B) on SNAPS_DIR disk.
+    avail=$(df -B1 --output=avail "$SNAPS_DIR" | grep -v 'Avail')
+    # Only copy snap and assert if there's enough room.
+    if [[ $avail -gt $size ]]; then
+        prog=$(($bytes_copied*100/$total_bytes_to_copy))
+        echo "- copying snap [& assert] for ${snap}_${rev} to $SNAPS_DIR..."
+        echo -e "0\t$prog\t$snap\t$rev" >> "$tmp_copy"
+        snap_rev="${snap}_${rev}"
+
+        # Source folders for installed snaps.
+        if [[ $state == 'I' ]]; then
+            src_snaps="$SNAPS"
+            src_asserts="$tmp_asserts_dir"
+        # Source folders for seeded snaps.
+        elif [[ $state == 'S' ]]; then
+            src_snaps="$SEEDS"/snaps
+            src_asserts="$SEEDS"/assertions
+        else
+            # Not really possible.
+            echo "Snap source location not known. Exiting."
+            echo "1" >> "$tmp_copy"
+            script_exit 1
+            exit 1
         fi
+
+        # Copy snap and assert files to $SNAPS_DIR.
+        cp "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/
+        cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
+        chmod 777 "$SNAPS_DIR"/"$snap_rev"*
+        ((bytes_copied += $size))
     else
-        # If not, copy snap and assert to snaps_dir.
-        echo "- Copying $name to $snaps_dir..."
-        cp "$seed_base"/snaps/"${name}_${rev}.snap" "$snaps_dir"/
-        cp "$seed_base"/assertions/"${name}_${rev}.assert" "$snaps_dir"/
-        snaps_copied["$a"]="$rev"
+        echo "Not enough room left on device. Exiting."
+        #TODO: Needs a zenity dialog.
+        echo "1" >> "$tmp_copy"
+        script_exit 1
+        exit 1
     fi
 done
+) &
+COPY_PID=$!
+
+# Read tempfile to get data for Zenity progress dialog while COPY_PID exists.
+show_progress "$COPY_PID" "$tmp_copy" "$SNAPS_DIR" "Copying"
+ec=$?
+if [[ $ec -gt 0 ]]; then
+    script_exit "$ec" "$COPY_PID"
+fi
+
+#TODO: Do we even need to keep a record of snaps copied?
+declare -A snaps_copied
+# Apparently can't assign to array within the show_progress function above.
+while read l; do
+    name=$(echo "$l" | cut -f3)
+    rev=$(echo "$l" | cut -f4)
+    snaps_copied["$name"]="$rev"
+done < "$tmp_copy"
 
 
 # 6. Delete old revisions, keeping only the $max most recent ones.
 # ---------------------------------------------------------------------------
 # Get snaps in offline directory.
 echo "Listing snaps in offline folder..."
-available_list=$(find "$snaps_dir"/ -name '*.snap')
-# Build dictionary of offline snaps and revisions in snaps_dir.
+available_list=$(find "$SNAPS_DIR"/ -name '*.snap')
+# Build up-to-date dictionary of offline snaps and revisions in SNAPS_DIR.
 #   The revision numbers are space-delimited; e.g. ("[skype]"="54 57 ").
 declare -A snaps_offline
 for a in ${available_list[@]}; do
@@ -302,39 +524,31 @@ done
 echo "Removing old snap versions..."
 # Create dictionary of snaps and revisions to be removed.
 declare -A snaps_removed
-#declare -A snaps_kept
-for s in ${!snaps_offline[@]}; do
+for snap in ${!snaps_offline[@]}; do
     sorted=$(
-        for r in ${snaps_offline[$s]}; do
+        for r in ${snaps_offline[$snap]}; do
             echo $r
         done | sort -nr
         )
     count=1
-    for i in ${sorted[@]}; do
+    for rev in ${sorted[@]}; do
         if [[ $count -le $max ]]; then
-            #echo "keeping $s rev $i"
-            #snaps_kept["$s"]+="$i "
+            # Don't remove snap revision.
             ((count += 1))
         else
-            #echo "removing $s rev $i"
-            snaps_removed["$s"]+="$i "
+            # Select snap revision and assert file for removal.
+            snaps_removed["$snap"]+="$rev "
         fi
     done
 done
 
 # Remove all snaps and asserts of given revision numbers.
-for n in ${!snaps_removed[@]}; do
-    for r in ${snaps_removed[$n]}; do
-        rm -f "$snaps_dir"/"${n}_${r}.snap"
-        rm -f "$snaps_dir"/"${n}_${r}.assert"
+for snap in ${!snaps_removed[@]}; do
+    for rev in ${snaps_removed[$snap]}; do
+        rm -f "$SNAPS_DIR"/"${snap}_${rev}.snap"
+        rm -f "$SNAPS_DIR"/"${snap}_${rev}.assert"
     done
 done
-
-# Fix permissions of offline folder contents.
-# Surely we don't want to assume it will always be a FAT-formatted USB that
-#   will ignore Linux permissions when put in another machine (or shared over
-#   a network).
-chmod 666 "$snaps_dir"/*
-
 echo "Done."
-exit 0
+
+script_exit 0
