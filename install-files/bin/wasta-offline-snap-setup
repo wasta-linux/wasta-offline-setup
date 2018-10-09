@@ -1,8 +1,13 @@
 #!/bin/bash
 
+# TODO:
+#   - Add log file
+#   - Add zenity windows for all errors.
+#   - Configure zenitiy windows to match the style of wasta-offline-setup.
+
 # =============================================================================
 # This script should:
-# 1. Create a dictionary of ([$snap]="$revision $parent_folder") for local snaps.
+# 1. Create a dictionary of information about local snaps.
 #       Start with seeds.
 #       Add/overwrite from installed snaps, keeping highest revisions.
 # 2. Create a dictionary of snaps and revisions in SNAPS_DIR
@@ -64,7 +69,7 @@ destination will be requested interactively.
 "
 
 # Default number of snap revisions kept in offline folder.
-max=2
+MAX=2
 
 # Evaluate options.
 while getopts ":hk:" opt; do
@@ -73,9 +78,9 @@ while getopts ":hk:" opt; do
             echo "$HELP_TEXT"
             exit 0
             ;;
-        k) # max num of kept snaps specified
+        k) # MAX num of kept snaps specified
             if [[ $OPTARG -ge 1 ]]; then
-                max="$OPTARG"
+                MAX="$OPTARG"
             else
                 echo "Error: At least 1 revision of each snap must be kept."
                 exit 1
@@ -89,30 +94,39 @@ done
 shift $((OPTIND-1))
 SNAPS_DIR="$1"
 
+# Zenity defaults
+ZTITLE="wasta [Offline] Snap Setup"
+ZWIDTH=500
+ZICON=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png
+
 # Determine SNAPS_DIR. If no arg passed, give initial prompt and then prompt for folder.
 while [[ ! -w "$SNAPS_DIR" ]]; do
-    zenity --question --no-wrap --height=200 --width=500 \
-        --title="wasta [Offline] Snap Setup" \
-        --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+    zenity --question --no-wrap --height=200 --width="$ZWIDTH" \
+        --title="$ZTITLE" --window-icon="$ZICON" \
         --text="<b>Use wasta [Offline] Snap Setup to add your computer's
 <u>local snap cache</u> to wasta [Offline]?</b>\n
 
 <i>You will be prompted to <b>either</b>:</i>\n
   <b>* Select</b> an <b>existing</b> <i>'wasta-offline'</i>  folder <b>or</b>\n
   <b>* Create</b> (and then <b>Select</b>) a folder of your choice.\n"
-    if [ "$?" -ne 0 ]; then
+    if [[ $? -gt 0 ]]; then
         # User didn't say yes: exit.
         exit 1
     fi
 
     text="Searching system for wasta-offline folder..."
-    title="wasta [Offline] Snap Setup: Searching"
     prog_opts="--progress --pulsate --auto-close --auto-kill --no-cancel"
     # Using SUDO_USER to try to limit the scope of the 'find' command below.
     #   Convoluted yet functional zenity subprocess inspired by this article:
     #   http://wiki.bash-hackers.org/zenity_--progress
     wo_list=$(sudo -u $SUDO_USER find / -name 'wasta-offline' -type d 2>/dev/null \
-        | tee >(zenity ${prog_opts[@]} --title="$title" --text="$text"))
+        | tee >(zenity ${prog_opts[@]} \
+                    --title="$ZTITLE" \
+                    --text="$text" \
+                    --width="$ZWIDTH" \
+                    --window-icon="$ZICON"
+                    )
+                )
     for d in ${wo_list[@]}; do
         loc_cache=$(find "$d" -name 'local-cache' -type d 2>/dev/null)
         if [[ $loc_cache =~ ^/media/.*$ ]]; then
@@ -135,7 +149,7 @@ start folder: $START_FOLDER"
   
     FOLDER_SEL=$(zenity --file-selection \
         --directory --filename="$START_FOLDER" \
-        --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+        --window-icon="$ZICON" \
         --title="Select or Create a destination folder")
     if [[ $? -gt 0 ]]; then
         # User clicked "Cancel". Exit.
@@ -148,9 +162,9 @@ start folder: $START_FOLDER"
 wasta-offline snaps location: $SNAPS_DIR"
     else
         # Not likely to have selected a folder unwriteable by root, but just in case.
-        zenity --error --width=500 --height=200 --no-wrap \
-          --title="wasta [Offline] Snaps Setup: Invalid folder" \
-          --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+        zenity --error --width="$ZWIDTH" --height=200 --no-wrap \
+          --title="$ZTITLE" \
+          --window-icon="$ZICON" \
           --text="<b>Selected Folder:</b> $FOLDER_SEL\n
 Files cannot be created in this folder.\n
 Please choose again."
@@ -233,19 +247,23 @@ script_exit() {
     ec="$1"
     pid_to_kill="$2"
     
-    # Kill the passed process.
-    if [[ $pid_to_kill ]]; then
+    # Kill the passed process if still running.
+    if [[ $pid_to_kill ]] && [[ $(ps --no-headers -p $pid_to_kill) ]]; then
         kill "$pid_to_kill"
     fi
     
     # Remove temp files.
     rm -r /tmp/${TEMPLATE%.*}*
     
-    # Remove non-777 files from $SNAPS_DIR (incomplete copy).
-    #TODO: This needs to be tested on a FAT drive.
-    find "$SNAPS_DIR" -perm 600 -exec rm '{}' \;
-    #TODO: Possibly remove snaps that don't have asserts.
-    #TODO: Possibly remove asserts that don't have snaps.
+    # Remove snaps in $SNAPS_DIR that don't have asserts (due to incomplete copy).
+    files_in_dest=$(find "$SNAPS_DIR" -type f)
+    for f in ${files_in_dest[@]}; do
+        if [[ $f =~ .*\.snap$ ]]; then
+            if [[ ! -f ${f//.snap}.assert ]]; then
+                rm $f
+            fi
+        fi
+    done
     
     exit "$ec"
     }
@@ -258,9 +276,7 @@ show_progress() {
     dest_dir="$3"
     info_txt="${@:4}"
 
-    title="wasta [Offline] Snap Setup"
-    prog_opts="--progress --auto-close --width=400"
-
+    prog_opts="--progress --auto-close --width=$ZWIDTH"
     while [[ $(ps --no-headers -p $proc_pid) ]]; do
         ec=$(tail -n1 "$data_src" | cut -f1)
         prog=$(tail -n1 "$data_src" | cut -f2)
@@ -275,7 +291,8 @@ show_progress() {
         echo "$prog"
         echo "#$info_txt $snap..."
         sleep 0.2
-    done | zenity ${prog_opts[@]} --title="$title" 2>/dev/null
+    done | zenity ${prog_opts[@]} --title="$ZTITLE" --width="$ZWIDTH" \
+            --window-icon="$ZICON" 2>/dev/null
     }
 
 
@@ -411,7 +428,7 @@ done
 ) &
 ASSERT_PID=$!
 
-# Read tempfile to get data for Zenity progress dialog while ASSERT_PID exists.
+# Read tempfile to get data for progress dialog while ASSERT_PID exists.
 show_progress "$ASSERT_PID" "$tmp_asserts" "none" "Creating assert file for"
 # For some reason this doesn't kill the subprocess if included within the show_progress function.
 ec=$?
@@ -432,7 +449,7 @@ done
 
 # 5. Copy eligible snaps and asserts, checking disk space before each one.
 # ---------------------------------------------------------------------------
-# Show zenity progress based on bytes copied.
+# Show progress dialog based on bytes copied.
 tmp_copy=$(mktemp "$TEMPLATE" --tmpdir)
 bytes_copied=0
 (
@@ -504,7 +521,7 @@ while read l; do
 done < "$tmp_copy"
 
 
-# 6. Delete old revisions, keeping only the $max most recent ones.
+# 6. Delete old revisions, keeping only the $MAX most recent ones.
 # ---------------------------------------------------------------------------
 # Get snaps in offline directory.
 echo "Listing snaps in offline folder..."
@@ -520,7 +537,7 @@ for a in ${available_list[@]}; do
     snaps_offline["$name"]+="$rev "
 done
 
-# Sort revisions listed for each snap. Remove all but $max higest revisions.
+# Sort revisions listed for each snap. Remove all but $MAX higest revisions.
 echo "Removing old snap versions..."
 # Create dictionary of snaps and revisions to be removed.
 declare -A snaps_removed
@@ -532,7 +549,7 @@ for snap in ${!snaps_offline[@]}; do
         )
     count=1
     for rev in ${sorted[@]}; do
-        if [[ $count -le $max ]]; then
+        if [[ $count -le $MAX ]]; then
             # Don't remove snap revision.
             ((count += 1))
         else
