@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # TODO:
-#   - Add log file
-#   - Add zenity windows for all errors.
-#   - Configure zenitiy windows to match the style of wasta-offline-setup.
+#   - Add log file.
+#   - Add a post-transfer file integrity check for $SNAPS_DIR?
+#   - Figure out how to show file copy progress by byte rather than by whole file.
 
 # =============================================================================
 # This script should:
@@ -96,19 +96,21 @@ SNAPS_DIR="$1"
 
 # Zenity defaults
 ZTITLE="wasta [Offline] Snap Setup"
+ZHEIGHT=200
 ZWIDTH=500
 ZICON=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png
+ZDEFAULTS=(--title="$ZTITLE" --height="$ZHEIGHT" --width="$ZWIDTH" --window-icon="$ZICON")
 
-# Determine SNAPS_DIR. If no arg passed, give initial prompt and then prompt for folder.
+# Determine SNAPS_DIR.
+#   If no arg passed, give initial prompt and then prompt for folder.
 while [[ ! -w "$SNAPS_DIR" ]]; do
-    zenity --question --no-wrap --height=200 --width="$ZWIDTH" \
-        --title="$ZTITLE" --window-icon="$ZICON" \
+    zenity --question --no-wrap "${ZDEFAULTS[@]}" \
         --text="<b>Use wasta [Offline] Snap Setup to add your computer's
 <u>local snap cache</u> to wasta [Offline]?</b>\n
 
 <i>You will be prompted to <b>either</b>:</i>\n
   <b>* Select</b> an <b>existing</b> <i>'wasta-offline'</i>  folder <b>or</b>\n
-  <b>* Create</b> (and then <b>Select</b>) a folder of your choice.\n"
+  <b>* Create</b> (and then <b>Select</b>) a folder of your choice.\n" 2>/dev/null
     if [[ $? -gt 0 ]]; then
         # User didn't say yes: exit.
         exit 1
@@ -119,14 +121,12 @@ while [[ ! -w "$SNAPS_DIR" ]]; do
     # Using SUDO_USER to try to limit the scope of the 'find' command below.
     #   Convoluted yet functional zenity subprocess inspired by this article:
     #   http://wiki.bash-hackers.org/zenity_--progress
-    wo_list=$(sudo -u $SUDO_USER find / -name 'wasta-offline' -type d 2>/dev/null \
-        | tee >(zenity ${prog_opts[@]} \
-                    --title="$ZTITLE" \
-                    --text="$text" \
-                    --width="$ZWIDTH" \
-                    --window-icon="$ZICON"
-                    )
-                )
+    wo_list=$(
+        sudo -u $SUDO_USER find / -name 'wasta-offline' -type d 2>/dev/null \
+            | tee >(
+            zenity ${prog_opts[@]} --text="$text" "${ZDEFAULTS[@]}" 2>/dev/null
+            )
+        )
     for d in ${wo_list[@]}; do
         loc_cache=$(find "$d" -name 'local-cache' -type d 2>/dev/null)
         if [[ $loc_cache =~ ^/media/.*$ ]]; then
@@ -139,7 +139,7 @@ while [[ ! -w "$SNAPS_DIR" ]]; do
             START_FOLDER="$d"
         else
             # No existing wasta-offline folder found.
-            START_FOLDER="/home/$SUDO_USER"
+            START_FOLDER=/home/$SUDO_USER
         fi
     done
 
@@ -147,10 +147,11 @@ while [[ ! -w "$SNAPS_DIR" ]]; do
 
 start folder: $START_FOLDER"
   
-    FOLDER_SEL=$(zenity --file-selection \
-        --directory --filename="$START_FOLDER" \
-        --window-icon="$ZICON" \
-        --title="Select or Create a destination folder")
+    FOLDER_SEL=$(
+        zenity --file-selection --directory --filename="$START_FOLDER" \
+        "${ZDEFAULTS[@]}" \
+        --title="Select or Create a destination folder" 2>/dev/null
+        )
     if [[ $? -gt 0 ]]; then
         # User clicked "Cancel". Exit.
         exit 1
@@ -162,12 +163,10 @@ start folder: $START_FOLDER"
 wasta-offline snaps location: $SNAPS_DIR"
     else
         # Not likely to have selected a folder unwriteable by root, but just in case.
-        zenity --error --width="$ZWIDTH" --height=200 --no-wrap \
-          --title="$ZTITLE" \
-          --window-icon="$ZICON" \
+        zenity --error --no-wrap "${ZDEFAULTS[@]}" \
           --text="<b>Selected Folder:</b> $FOLDER_SEL\n
 Files cannot be created in this folder.\n
-Please choose again."
+Please choose again." 2>/dev/null
         if [[ $? -gt 0 ]]; then
             # User chose "Cancel". Exiting.
             exit 1
@@ -177,21 +176,24 @@ done
 
 # Need to be able to handle 2 types of SNAPS_DIRs:
 #   1. "wasta-offline" folder -> Set SNAPS_DIR as wasta-offline/local-cache/snaps.
-#   2. any other folder passed -> Keep SNAPS_DIR as-is.
+#   2. any other folder passed -> Set SNAPS_DIR as passed argument.
 if [[ $SNAPS_DIR =~ ^.*wasta-offline/*$ ]]; then
     SNAPS_DIR="$SNAPS_DIR"/local-cache/snaps
     # Make sure SNAPS_DIR exists.
     mkdir -p $SNAPS_DIR
 fi
 
-#TODO: I had used the API until I found out about $ snap known [...].
-#   This can be removed if it ends up being ultimately useless.
-# snapd API docs: https://docs.ubuntu.com/core/en/reference/rest
-# snapd's API is at:
-api_addr="http://localhost"
+# snapd API variables
+# docs: https://docs.ubuntu.com/core/en/reference/rest
+SNAPD_API=http://localhost
+SOCKET=/run/snapd.socket
+
+# snapd directories
 SNAPD=/var/lib/snapd
 SEEDS="$SNAPD"/seed
 SNAPS="$SNAPD"/snaps
+
+# mktemp template reference
 TEMPLATE="wo-snap.XXXX"
 
 
@@ -202,10 +204,8 @@ TEMPLATE="wo-snap.XXXX"
 create_assert_file() {
     snap="$1"
     rev="$2"
-    dest="$3"
-
-    # Get snap ID.
-    snap_id=$(snap info "$snap" | grep 'snap-id' | tr -s ' ' | cut -d' ' -f2)
+    snap_id="$3"
+    dest="$4"
 
     # Get account-key info of given snap.
     snap_key_info=$(snap known account-key account-id=canonical name=store)
@@ -254,7 +254,7 @@ script_exit() {
     
     # Remove temp files.
     rm -r /tmp/${TEMPLATE%.*}*
-    
+   
     # Remove snaps in $SNAPS_DIR that don't have asserts (due to incomplete copy).
     files_in_dest=$(find "$SNAPS_DIR" -type f)
     for f in ${files_in_dest[@]}; do
@@ -264,6 +264,8 @@ script_exit() {
             fi
         fi
     done
+
+    # TODO: Perform file integrity check for snaps in $SNAPS_DIR?
     
     exit "$ec"
     }
@@ -276,7 +278,7 @@ show_progress() {
     dest_dir="$3"
     info_txt="${@:4}"
 
-    prog_opts="--progress --auto-close --width=$ZWIDTH"
+    prog_opts="--progress --auto-close"
     while [[ $(ps --no-headers -p $proc_pid) ]]; do
         ec=$(tail -n1 "$data_src" | cut -f1)
         prog=$(tail -n1 "$data_src" | cut -f2)
@@ -284,15 +286,13 @@ show_progress() {
         rev=$(tail -n1 "$data_src" | cut -f4)
         
         if [[ $ec -gt 0 ]]; then
-            #return "$ec"
             script_exit "$ec" "$proc_pid"
         fi
         
         echo "$prog"
         echo "#$info_txt $snap..."
         sleep 0.2
-    done | zenity ${prog_opts[@]} --title="$ZTITLE" --width="$ZWIDTH" \
-            --window-icon="$ZICON" 2>/dev/null
+    done | zenity ${prog_opts[@]} "${ZDEFAULTS[@]}" 2>/dev/null
     }
 
 
@@ -400,6 +400,26 @@ done
 # ---------------------------------------------------------------------------
 echo "Creating assert files for installed snaps..."
 
+# Create dictionary of snaps and snap-ids.
+snaps_addr=v2/snaps
+snaps_count=$(snap list | grep -vE '^Name\s*Version.*' | grep -v disabled | wc -l)
+json=$(curl --silent --unix-socket $SOCKET $SNAPD_API/$snaps_addr)
+names=($(echo "$json" | jq ".result[].name"))
+ids=($(echo "$json" | jq ".result[].id"))
+declare -A snap_ids
+i=0
+while [[ $i -le $snaps_count ]]; do
+    snap="${names[$i]}"
+    snap="${snap#\"}" #}"
+    snap="${snap%\"}" #}"
+    
+    snap_id="${ids[$i]}"
+    snap_id="${snap_id#\"}" #}"
+    snap_id="${snap_id%\"}" #}"
+    snap_ids["$snap"]="$snap_id"
+    ((i++))
+done
+
 # Send assert creation to the background & log output to tempfile.
 tmp_asserts_dir=$(mktemp -d "$TEMPLATE" --tmpdir)
 #TODO: The output to this tempfile should probably go to a log file instead.
@@ -414,6 +434,7 @@ for snap in ${!snaps_to_copy[@]}; do
     
     rev=${data%% *}
     state=${rem2% *}
+    snap_id="${snap_ids[$snap]}"
     # Only snaps with [[ state == I ]] need an accompanying assert file.
     if [[ $state != 'I' ]]; then
         continue
@@ -422,14 +443,18 @@ for snap in ${!snaps_to_copy[@]}; do
     prog=$(($ct*100/$total_ct))
     echo "- creating assert file for $snap..."
     echo -e "0\t$prog\t$snap" >> "$tmp_asserts"
-    create_assert_file "$snap" "$rev" "$tmp_asserts_dir"
+    create_assert_file "$snap" "$rev" "$snap_id" "$tmp_asserts_dir"
     ((ct += 1))
 done
 ) &
 ASSERT_PID=$!
 
+# TODO: I'm not sure we need a progress window here. Assert creation goes
+#   rather quickly now.
 # Read tempfile to get data for progress dialog while ASSERT_PID exists.
-show_progress "$ASSERT_PID" "$tmp_asserts" "none" "Creating assert file for"
+text="Some assert files need to be created. Please be patient.\n\n \
+Creating assert file for"
+show_progress "$ASSERT_PID" "$tmp_asserts" "none" "$text"
 # For some reason this doesn't kill the subprocess if included within the show_progress function.
 ec=$?
 if [[ $ec -gt 0 ]]; then
@@ -494,8 +519,12 @@ for snap in ${!snaps_to_copy[@]}; do
         chmod 777 "$SNAPS_DIR"/"$snap_rev"*
         ((bytes_copied += $size))
     else
-        echo "Not enough room left on device. Exiting."
-        #TODO: Needs a zenity dialog.
+        disk=$(df /media/nate/Nates16GB/wasta-offline | tail -n1 | tr -s ' ' | \
+                cut -d ' ' -f1)
+        text="Not enough room left on device $disk.\n\n \
+Please clear up some space and try again or use a different disk."
+        echo "$text"
+        zenity --error "${ZDEFAULTS[@]}" --text="$text" 2>/dev/null
         echo "1" >> "$tmp_copy"
         script_exit 1
         exit 1
@@ -505,7 +534,11 @@ done
 COPY_PID=$!
 
 # Read tempfile to get data for Zenity progress dialog while COPY_PID exists.
-show_progress "$COPY_PID" "$tmp_copy" "$SNAPS_DIR" "Copying"
+text="Copying snaps to:\n\n \
+\t$SNAPS_DIR\n\n \
+This may take some time, especially on a USB 2.0 device.\n\n \
+Copying"
+show_progress "$COPY_PID" "$tmp_copy" "$SNAPS_DIR" "$text"
 ec=$?
 if [[ $ec -gt 0 ]]; then
     script_exit "$ec" "$COPY_PID"
@@ -559,6 +592,8 @@ for snap in ${!snaps_offline[@]}; do
     done
 done
 
+# TODO: I think this happens fast enough to not need a progress window. But
+#   that can be reconsidered after more testing.
 # Remove all snaps and asserts of given revision numbers.
 for snap in ${!snaps_removed[@]}; do
     for rev in ${snaps_removed[$snap]}; do
