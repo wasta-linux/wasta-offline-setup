@@ -2,6 +2,7 @@
 
 # TODO:
 #   - Add log file.
+#   - Add sync command to ensure writing is complete.
 #   - Add a post-transfer file integrity check for $SNAPS_DIR?
 #   - Figure out how to show file copy progress by byte rather than by whole file.
 
@@ -94,6 +95,10 @@ done
 shift $((OPTIND-1))
 SNAPS_DIR="$1"
 
+# System info
+LOG_DATE=$(date +%F-%H-%M)
+HOST=$(uname -n)
+
 # Zenity defaults
 ZTITLE="wasta [Offline] Snap Setup"
 ZHEIGHT=200
@@ -174,6 +179,11 @@ Please choose again." 2>/dev/null
     fi
 done
 
+# Set log location.
+LOG_DIR="$SNAPS_DIR/log/wasta-offline-snap-setup"
+mkdir -p $LOG_DIR
+LOG="$LOG_DIR/$LOG_DATE-$HOST.log"
+
 # Need to be able to handle 2 types of SNAPS_DIRs:
 #   1. "wasta-offline" folder -> Set SNAPS_DIR as wasta-offline/local-cache/snaps.
 #   2. any other folder passed -> Set SNAPS_DIR as passed argument.
@@ -184,7 +194,7 @@ if [[ $SNAPS_DIR =~ ^.*wasta-offline/*$ ]]; then
 fi
 
 # snapd API variables
-# docs: https://docs.ubuntu.com/core/en/reference/rest
+#   docs: https://docs.ubuntu.com/core/en/reference/rest
 SNAPD_API=http://localhost
 SOCKET=/run/snapd.socket
 
@@ -408,7 +418,7 @@ names=($(echo "$json" | jq ".result[].name"))
 ids=($(echo "$json" | jq ".result[].id"))
 declare -A snap_ids
 i=0
-while [[ $i -le $snaps_count ]]; do
+while [[ $i -lt $snaps_count ]]; do
     snap="${names[$i]}"
     snap="${snap#\"}" #}"
     snap="${snap%\"}" #}"
@@ -489,7 +499,7 @@ for snap in ${!snaps_to_copy[@]}; do
     state=${rem2% *}
     
     # Get size of available space (in B) on SNAPS_DIR disk.
-    avail=$(df -B1 --output=avail "$SNAPS_DIR" | grep -v 'Avail')
+    avail=$(df -B1 --output=avail "$SNAPS_DIR" | tail -n1)
     # Only copy snap and assert if there's enough room.
     if [[ $avail -gt $size ]]; then
         prog=$(($bytes_copied*100/$total_bytes_to_copy))

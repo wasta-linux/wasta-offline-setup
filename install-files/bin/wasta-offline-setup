@@ -116,7 +116,8 @@ software updates or installs on other computers.</i></small>"
   
      
   # first, look for wasta-offline folder under /media/$USER (12.10 and newer)
-  # 2014-04-24 rik: $USER, $(logname), $(whoami), $(who) all not working when
+  # 2014-04-24 rik: $USER, $(logname), $(whoaLOG_DATE=$(date +%F-%H-%M)
+HOST=$(uname -n)mi), $(who) all not working when
   #   launch with gksu.  So, just setting to /media/*/*/wasta-offline :-(
   START_FOLDER=$(ls -1d /media/*/*/wasta-offline 2> /dev/null | head -1)
   
@@ -635,6 +636,25 @@ echo | tee -a "$LOG"
 echo "--------------------------------------------------------" | tee -a "$LOG"
 echo $(date +%T) $HOST "wasta-offline-setup complete          " | tee -a "$LOG"
 echo "========================================================" | tee -a "$LOG"
+
+# ------------------------------------------------------------------------------
+# Copy snap packages
+# ------------------------------------------------------------------------------
+# TODO: This could also possibly go before the above "wasta-offline-setup complete"
+
+# If /usr/bin/snap exists, then snapd & at least some seeded snaps are installed.
+# TODO: I would think wasta-offline-snap-setup should use its own log file.
+#   But there should at least be some mention of it in the wasta-offline-setup
+#   log.
+snap_setup_script=/usr/bin/wasta-offline-snap-setup
+snap_setup_script=/home/nate/dev/wasta-offline-setup/wasta-offline-setup/install-files/bin/wasta-offline-snap-setup
+if [[ -x /usr/bin/snap ]]; then
+    echo | tee -a "$LOG"
+    echo $(date +%T) $HOST "wasta-offline-snap-setup started" | tee -a "$LOG"
+    echo "Its log file can be found in $WO_LOC/log/wasta-offline-snap-setup" | tee -a "$LOG"
+    echo | tee -a "$LOG"
+    $snap_setup_script "$WO_LOC"
+fi
 
 # ------------------------------------------------------------------------------
 # Finished
