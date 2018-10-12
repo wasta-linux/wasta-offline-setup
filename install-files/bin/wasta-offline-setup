@@ -116,8 +116,7 @@ software updates or installs on other computers.</i></small>"
   
      
   # first, look for wasta-offline folder under /media/$USER (12.10 and newer)
-  # 2014-04-24 rik: $USER, $(logname), $(whoaLOG_DATE=$(date +%F-%H-%M)
-HOST=$(uname -n)mi), $(who) all not working when
+  # 2014-04-24 rik: $USER, $(logname), $(whoami), $(who) all not working when
   #   launch with gksu.  So, just setting to /media/*/*/wasta-offline :-(
   START_FOLDER=$(ls -1d /media/*/*/wasta-offline 2> /dev/null | head -1)
   
