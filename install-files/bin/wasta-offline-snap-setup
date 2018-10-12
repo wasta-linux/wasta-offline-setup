@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # TODO:
+#   - Some kind of assurance than only stable-channel snaps are copied.
 #   - Add log file.
 #   - Add sync command to ensure writing is complete.
 #   - Add a post-transfer file integrity check for $SNAPS_DIR?
@@ -97,8 +98,8 @@ while [[ ! -w $SNAPS_DIR ]]; do
 <i>You will be prompted to <b>either</b>:</i>\n
   <b>* Select</b> an <b>existing</b> <i>'wasta-offline'</i>  folder <b>or</b>\n
   <b>* Create</b> (and then <b>Select</b>) a folder of your choice.\n" 2>/dev/null
-    if [[ $? -gt 0 ]]; then
-        # User didn't say yes: exit.
+    if [[ $? -eq 1 ]]; then
+        # User chose "no": exit.
         exit 1
     fi
 
@@ -108,10 +109,11 @@ while [[ ! -w $SNAPS_DIR ]]; do
     #   Convoluted yet functional zenity subprocess inspired by this article:
     #   http://wiki.bash-hackers.org/zenity_--progress
     wo_list=$(
-        sudo -u $SUDO_USER find /media /mnt /home/$SUDO_USER -name 'wasta-offline' -type d 2>/dev/null \
-            | tee >(
-            zenity ${prog_opts[@]} --text="$text" "${ZDEFAULTS[@]}" 2>/dev/null
-            )
+        sudo -u $SUDO_USER find /media /mnt /home/$SUDO_USER \
+            -name 'wasta-offline' -type d 2>/dev/null | tee >(
+                zenity ${prog_opts[@]} --text="$text" "${ZDEFAULTS[@]}" \
+                    2>/dev/null
+                )
         )
     if [[ -z $wo_list ]]; then
         START_FOLDER=/home/"$SUDO_USER"/
@@ -142,7 +144,7 @@ start folder: $START_FOLDER"
         "${ZDEFAULTS[@]}" \
         --title="Select or Create a destination folder" 2>/dev/null
         )
-    if [[ $? -gt 0 ]]; then
+    if [[ $? -ne 0 ]]; then
         # User clicked "Cancel". Exit.
         exit 1
     elif [[ -w $FOLDER_SEL ]]; then
