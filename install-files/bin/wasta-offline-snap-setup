@@ -70,7 +70,8 @@ destination will be requested interactively.
 "
 
 # Default number of snap revisions kept in offline folder.
-MAX=2
+# TODO: Change this to 2 after thorough testing of wasta-snap-manager.
+MAX=3
 
 # Evaluate options.
 while getopts ":hk:" opt; do
@@ -108,7 +109,7 @@ ZDEFAULTS=(--title="$ZTITLE" --height="$ZHEIGHT" --width="$ZWIDTH" --window-icon
 
 # Determine SNAPS_DIR.
 #   If no arg passed, give initial prompt and then prompt for folder.
-while [[ ! -w "$SNAPS_DIR" ]]; do
+while [[ ! -w $SNAPS_DIR ]]; do
     zenity --question --no-wrap "${ZDEFAULTS[@]}" \
         --text="<b>Use wasta [Offline] Snap Setup to add your computer's
 <u>local snap cache</u> to wasta [Offline]?</b>\n
@@ -144,7 +145,7 @@ while [[ ! -w "$SNAPS_DIR" ]]; do
             START_FOLDER="$d"
         else
             # No existing wasta-offline folder found.
-            START_FOLDER=/home/$SUDO_USER
+            START_FOLDER=/home/"$SUDO_USER"
         fi
     done
 
@@ -190,7 +191,7 @@ LOG="$LOG_DIR/$LOG_DATE-$HOST.log"
 if [[ $SNAPS_DIR =~ ^.*wasta-offline/*$ ]]; then
     SNAPS_DIR="$SNAPS_DIR"/local-cache/snaps
     # Make sure SNAPS_DIR exists.
-    mkdir -p $SNAPS_DIR
+    mkdir -p "$SNAPS_DIR"
 fi
 
 # snapd API variables
@@ -258,7 +259,7 @@ script_exit() {
     pid_to_kill="$2"
     
     # Kill the passed process if still running.
-    if [[ $pid_to_kill ]] && [[ $(ps --no-headers -p $pid_to_kill) ]]; then
+    if [[ $pid_to_kill ]] && [[ $(ps --no-headers -p "$pid_to_kill") ]]; then
         kill "$pid_to_kill"
     fi
     
@@ -289,7 +290,7 @@ show_progress() {
     info_txt="${@:4}"
 
     prog_opts="--progress --auto-close"
-    while [[ $(ps --no-headers -p $proc_pid) ]]; do
+    while [[ $(ps --no-headers -p "$proc_pid") ]]; do
         ec=$(tail -n1 "$data_src" | cut -f1)
         prog=$(tail -n1 "$data_src" | cut -f2)
         snap=$(tail -n1 "$data_src" | cut -f3)
@@ -384,13 +385,13 @@ echo "Preparing to copy newest snaps and assert files to $SNAPS_DIR."
 # Determine which local snaps are eligible to be copied.
 declare -A snaps_to_copy
 for snap in ${!snaps_local[@]}; do
-    data=${snaps_local[$snap]}
-    rem3=${data#* }
-    rem2=${rem3#* }
+    data="${snaps_local[$snap]}"
+    rem3="${data#* }"
+    rem2="${rem3#* }"
 
-    rev=${data%% *}
-    size=${rem3%% *}
-    state=${rem2% *}
+    rev="${data%% *}"
+    size="${rem3%% *}"
+    state="${rem2% *}"
 
     # Check to see if local snap has a revision in SNAPS_DIR.
     if [[ ${snaps_avail[$snap]} ]]; then
@@ -413,7 +414,7 @@ echo "Creating assert files for installed snaps..."
 # Create dictionary of snaps and snap-ids.
 snaps_addr=v2/snaps
 snaps_count=$(snap list | grep -vE '^Name\s*Version.*' | grep -v disabled | wc -l)
-json=$(curl --silent --unix-socket $SOCKET $SNAPD_API/$snaps_addr)
+json=$(curl --silent --unix-socket "$SOCKET" "$SNAPD_API"/"$snaps_addr")
 names=($(echo "$json" | jq ".result[].name"))
 ids=($(echo "$json" | jq ".result[].id"))
 declare -A snap_ids
@@ -424,8 +425,8 @@ while [[ $i -lt $snaps_count ]]; do
     snap="${snap%\"}" #}"
     
     snap_id="${ids[$i]}"
-    snap_id="${snap_id#\"}" #}"
-    snap_id="${snap_id%\"}" #}"
+    snap_id="${snap_id#\"}" #}" # the last chars are to fix syntax highlighting in gedit
+    snap_id="${snap_id%\"}" #}" # ditto
     snap_ids["$snap"]="$snap_id"
     ((i++))
 done
@@ -434,16 +435,16 @@ done
 tmp_asserts_dir=$(mktemp -d "$TEMPLATE" --tmpdir)
 #TODO: The output to this tempfile should probably go to a log file instead.
 tmp_asserts=$(mktemp "$TEMPLATE" --tmpdir)
-total_ct=${#snaps_to_copy[@]}
+total_ct="${#snaps_to_copy[@]}"
 (
 ct=0
 for snap in ${!snaps_to_copy[@]}; do
-    data=${snaps_to_copy[$snap]}
-    rem3=${data#* }
-    rem2=${rem3#* }
+    data="${snaps_to_copy[$snap]}"
+    rem3="${data#* }"
+    rem2="${rem3#* }"
     
-    rev=${data%% *}
-    state=${rem2% *}
+    rev="${data%% *}"
+    state="${rem2% *}"
     snap_id="${snap_ids[$snap]}"
     # Only snaps with [[ state == I ]] need an accompanying assert file.
     if [[ $state != 'I' ]]; then
@@ -476,9 +477,9 @@ fi
 #   of work when you consider that each one is less than 6 KiB.
 total_bytes_to_copy=0
 for snap in ${!snaps_to_copy[@]}; do
-    data=${snaps_to_copy[$snap]}
-    rem3=${data#* }
-    size=${rem3%% *}
+    data="${snaps_to_copy[$snap]}"
+    rem3="${data#* }"
+    size="${rem3%% *}"
     ((total_bytes_to_copy += $size))
 done
 
@@ -490,13 +491,13 @@ bytes_copied=0
 (
 # Copy each snap only if there is enough room on SNAPS_DIR disk.
 for snap in ${!snaps_to_copy[@]}; do
-    data=${snaps_to_copy[$snap]}
-    rem3=${data#* }
-    rem2=${rem3#* }
+    data="${snaps_to_copy[$snap]}"
+    rem3="${data#* }"
+    rem2="${rem3#* }"
 
-    rev=${data%% *}
-    size=${rem3%% *}
-    state=${rem2% *}
+    rev="${data%% *}"
+    size="${rem3%% *}"
+    state="${rem2% *}"
     
     # Get size of available space (in B) on SNAPS_DIR disk.
     avail=$(df -B1 --output=avail "$SNAPS_DIR" | tail -n1)
@@ -573,10 +574,10 @@ available_list=$(find "$SNAPS_DIR"/ -name '*.snap')
 #   The revision numbers are space-delimited; e.g. ("[skype]"="54 57 ").
 declare -A snaps_offline
 for a in ${available_list[@]}; do
-    name_rev=${a##*/}
-    name_rev=${name_rev%.snap}
-    rev=${name_rev##*_}
-    name=${name_rev%_*}
+    name_rev="${a##*/}"
+    name_rev="${name_rev%.snap}"
+    rev="${name_rev##*_}"
+    name="${name_rev%_*}"
     snaps_offline["$name"]+="$rev "
 done
 
@@ -587,7 +588,7 @@ declare -A snaps_removed
 for snap in ${!snaps_offline[@]}; do
     sorted=$(
         for r in ${snaps_offline[$snap]}; do
-            echo $r
+            echo "$r"
         done | sort -nr
         )
     count=1
