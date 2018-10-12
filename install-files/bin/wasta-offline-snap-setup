@@ -133,21 +133,25 @@ while [[ ! -w $SNAPS_DIR ]]; do
             zenity ${prog_opts[@]} --text="$text" "${ZDEFAULTS[@]}" 2>/dev/null
             )
         )
-    for d in ${wo_list[@]}; do
-        loc_cache=$(find "$d" -name 'local-cache' -type d 2>/dev/null)
-        if [[ $loc_cache =~ ^/media/.*$ ]]; then
-            # Automatically accept 'wasta-offline' folder in /media/...
-            START_FOLDER="$d"
-            break
-        elif [[ $loc_cache ]]; then
-            # Accept other 'wasta-offlne' folder, but let one in /media/... overrule it.
-            #   In case there are more than two qualifiers, the last one found wins.
-            START_FOLDER="$d"
-        else
-            # No existing wasta-offline folder found.
-            START_FOLDER=/home/"$SUDO_USER"
-        fi
-    done
+    if [[ -z $wo_list ]]; then
+        START_FOLDER=/home/"$SUDO_USER"/
+    else
+        for d in ${wo_list[@]}; do
+            loc_cache=$(find "$d" -name 'local-cache' -type d 2>/dev/null)
+            if [[ $loc_cache =~ ^/media/.*$ ]]; then
+                # Automatically accept 'wasta-offline' folder in /media/...
+                START_FOLDER="$d"
+                break
+            elif [[ $loc_cache ]]; then
+                # Accept other 'wasta-offlne' folder, but let one in /media/... overrule it.
+                #   In case there are more than two qualifiers, the last one found wins.
+                START_FOLDER="$d"
+            else
+                # No existing wasta-offline folder found.
+                START_FOLDER=/home/"$SUDO_USER"/
+            fi
+        done
+    fi
 
     MSG+="
 
