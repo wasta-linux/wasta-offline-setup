@@ -24,26 +24,6 @@
 #   snap2_157.snap
 #   ...
 #
-# *Assert files
-#   It seems that snaps installed directly from the internet do not save an
-#   assert file locally. Seeded snaps in /var/lib/snapd/seed do have assert
-#   files, as well as snaps downloaded via $ snap download [snap]. But if one
-#   wants to copy an online-installed snap to another machine, then an assert
-#   file is needed.
-#   
-#   When using $ snap download [snap], if the snap is already present in the
-#   PWD, then only the assert file will be downloaded. I don't know if the
-#   command verifies the integrity of the snap file, though.
-#   However, wasta-offline-snap-setup (like wasta-offline-setup) shouldn't be
-#   dependent on an internet connection. Therefore, an assert file has to be
-#   created for that snap from locally-available information.
-#
-# A snap's assert file has either 3 or 4 parts:
-#   1. account-key (Canonical store info)
-#   2. account (publisher info, if not published by Canonical)
-#   3. snap-declaration (general snap info)
-#   4. snap-revision (info specific to given revision number)
-#
 # =============================================================================
 
 # Require root privileges.
@@ -94,7 +74,7 @@ while getopts ":hk:" opt; do
     esac
 done
 shift $((OPTIND-1))
-SNAPS_DIR="$1"
+SNAPS_DIR=$(realpath "$1") # realpath removes trailing '/'s
 
 # System info
 LOG_DATE=$(date +%F-%H-%M)
@@ -147,7 +127,7 @@ while [[ ! -w $SNAPS_DIR ]]; do
                 #   In case there are more than two qualifiers, the last one found wins.
                 START_FOLDER="$d"
             else
-                # No existing wasta-offline folder found.
+                # No "true" wasta-offline folder found.
                 START_FOLDER=/home/"$SUDO_USER"/
             fi
         done
