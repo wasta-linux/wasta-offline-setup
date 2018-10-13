@@ -54,6 +54,9 @@ destination will be requested interactively.
 # TODO: Change this to 2 after thorough testing of wasta-snap-manager.
 MAX=3
 
+# Default expectation of whether an argument was passed or not.
+ARG=0
+
 # Evaluate options.
 while getopts ":hk:" opt; do
     case $opt in
@@ -75,7 +78,9 @@ while getopts ":hk:" opt; do
     esac
 done
 shift $((OPTIND-1))
-SNAPS_DIR=$(realpath "$1") # realpath removes trailing '/'s
+
+# Clean up argument if passed.
+SNAPS_DIR=$(realpath "$1" 2>/dev/null) # realpath removes trailing '/'s
 
 # System info
 LOG_DATE=$(date +%F-%H-%M)
@@ -88,21 +93,33 @@ ZWIDTH=500
 ZICON=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png
 ZDEFAULTS=(--title="$ZTITLE" --height="$ZHEIGHT" --width="$ZWIDTH" --window-icon="$ZICON")
 
-# Determine SNAPS_DIR.
-#   If no arg passed, give initial prompt and then prompt for folder.
-while [[ ! -w $SNAPS_DIR ]]; do
-    zenity --question --no-wrap "${ZDEFAULTS[@]}" \
-        --text="<b>Use wasta [Offline] Snap Setup to add your computer's
-<u>local snap cache</u> to wasta [Offline]?</b>\n
+# Determine if $SUDO_USER has write access to passed $SNAPS_DIR.
+#   $no_write_access will be empty if the user does have write permission.
+no_write_access=$(sudo -u $SUDO_USER touch "$SNAPS_DIR"/.test-write 2>&1)
+# Exit with error if invalid $SNAPS_DIR passed as argument (assumed non-interactive).
+if [[ $1 ]] && [[ $write_access ]]; then
+    # Invalid $SNAPS_DIR passed as argument.
+    echo "Files cannot be created in this folder. Exiting."
+    exit 1
+fi
 
-<i>You will be prompted to <b>either</b>:</i>\n
-  <b>* Select</b> an <b>existing</b> <i>'wasta-offline'</i>  folder <b>or</b>\n
-  <b>* Create</b> (and then <b>Select</b>) a folder of your choice.\n" 2>/dev/null
-    if [[ $? -eq 1 ]]; then
-        # User chose "no": exit.
-        exit 1
+# If no argument passed, give initial prompt and get user input for $SNAPS_DIR .
+count=0
+while [[ $no_write_access ]]; do
+    if [[ $ct -eq 0 ]]; then
+        zenity --question --no-wrap "${ZDEFAULTS[@]}" \
+            --text="<b>Use wasta [Offline] Snap Setup to add your computer's
+    <u>local snap cache</u> to wasta [Offline]?</b>\n
+
+    <i>You will be prompted to <b>either</b>:</i>\n
+      <b>* Select</b> an <b>existing</b> <i>'wasta-offline'</i>  folder <b>or</b>\n
+      <b>* Create</b> (and then <b>Select</b>) a folder of your choice.\n" 2>/dev/null
+        if [[ $? -eq 1 ]]; then
+            # User chose "no": exit.
+            exit 1
+        fi
     fi
-
+    ((count++))
     text="Searching system for wasta-offline folder..."
     prog_opts="--progress --pulsate --auto-close --auto-kill --no-cancel"
     # Using SUDO_USER to try to limit the scope of the 'find' command below.
@@ -139,7 +156,7 @@ while [[ ! -w $SNAPS_DIR ]]; do
 
 start folder: $START_FOLDER"
   
-    FOLDER_SEL=$(
+    SNAPS_DIR=$(
         zenity --file-selection --directory --filename="$START_FOLDER" \
         "${ZDEFAULTS[@]}" \
         --title="Select or Create a destination folder" 2>/dev/null
@@ -147,24 +164,17 @@ start folder: $START_FOLDER"
     if [[ $? -ne 0 ]]; then
         # User clicked "Cancel". Exit.
         exit 1
-    elif [[ -w $FOLDER_SEL ]]; then
-        SNAPS_DIR="$FOLDER_SEL"
+    fi
+    write_access=$(sudo -u $SUDO_USER touch "$SNAPS_DIR"/.test-write 2>&1)
+done
 
-        MSG+="
+# $SNAPS_DIR successfully set with $SUDO_USER having non-sudo write access.
+MSG+="
 
 wasta-offline snaps location: $SNAPS_DIR"
-    else
-        # Not likely to have selected a folder unwriteable by root, but just in case.
-        zenity --error --no-wrap "${ZDEFAULTS[@]}" \
-          --text="<b>Selected Folder:</b> $FOLDER_SEL\n
-Files cannot be created in this folder.\n
-Please choose again." 2>/dev/null
-        if [[ $? -gt 0 ]]; then
-            # User chose "Cancel". Exiting.
-            exit 1
-        fi
-    fi
-done
+
+rm -f "$SNAPS_DIR"/.test-write
+
 
 # Set log location.
 LOG_DIR="$SNAPS_DIR/log/wasta-offline-snap-setup"
