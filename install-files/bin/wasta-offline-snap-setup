@@ -54,9 +54,6 @@ destination will be requested interactively.
 # TODO: Change this to 2 after thorough testing of wasta-snap-manager.
 MAX=3
 
-# Default expectation of whether an argument was passed or not.
-ARG=0
-
 # Evaluate options.
 while getopts ":hk:" opt; do
     case $opt in
@@ -97,7 +94,7 @@ ZDEFAULTS=(--title="$ZTITLE" --height="$ZHEIGHT" --width="$ZWIDTH" --window-icon
 #   $no_write_access will be empty if the user does have write permission.
 no_write_access=$(sudo -u $SUDO_USER touch "$SNAPS_DIR"/.test-write 2>&1)
 # Exit with error if invalid $SNAPS_DIR passed as argument (assumed non-interactive).
-if [[ $1 ]] && [[ $write_access ]]; then
+if [[ $1 ]] && [[ $no_write_access ]]; then
     # Invalid $SNAPS_DIR passed as argument.
     echo "Files cannot be created in this folder. Exiting."
     exit 1
@@ -106,6 +103,7 @@ fi
 # If no argument passed, give initial prompt and get user input for $SNAPS_DIR .
 count=0
 while [[ $no_write_access ]]; do
+    # Avoid initial prompt on subsequent loops.
     if [[ $ct -eq 0 ]]; then
         zenity --question --no-wrap "${ZDEFAULTS[@]}" \
             --text="<b>Use wasta [Offline] Snap Setup to add your computer's
@@ -120,6 +118,7 @@ while [[ $no_write_access ]]; do
         fi
     fi
     ((count++))
+
     text="Searching system for wasta-offline folder..."
     prog_opts="--progress --pulsate --auto-close --auto-kill --no-cancel"
     # Using SUDO_USER to try to limit the scope of the 'find' command below.
@@ -136,7 +135,8 @@ while [[ $no_write_access ]]; do
         START_FOLDER=/home/"$SUDO_USER"/
     else
         for d in ${wo_list[@]}; do
-            loc_cache=$(find "$d" -name 'local-cache' -type d 2>/dev/null)
+            # Look for "local-cache" subfolder of "wasta-offline" folder.
+            loc_cache=$(find "$d" -maxdepth 1 -name 'local-cache' -type d 2>/dev/null)
             if [[ $loc_cache =~ ^/media/.*$ ]]; then
                 # Automatically accept 'wasta-offline' folder in /media/...
                 START_FOLDER="$d"
@@ -165,10 +165,11 @@ start folder: $START_FOLDER"
         # User clicked "Cancel". Exit.
         exit 1
     fi
-    write_access=$(sudo -u $SUDO_USER touch "$SNAPS_DIR"/.test-write 2>&1)
+    # Test again for write access on newly-chosen $SNAPS_DIR.
+    no_write_access=$(sudo -u $SUDO_USER touch "$SNAPS_DIR"/.test-write 2>&1)
 done
 
-# $SNAPS_DIR successfully set with $SUDO_USER having non-sudo write access.
+# $SNAPS_DIR now successfully set with $SUDO_USER having non-sudo write access.
 MSG+="
 
 wasta-offline snaps location: $SNAPS_DIR"
@@ -185,7 +186,7 @@ LOG="$LOG_DIR/$LOG_DATE-$HOST.log"
 # Need to be able to handle 2 types of SNAPS_DIRs:
 #   1. "wasta-offline" folder -> Set SNAPS_DIR as wasta-offline/local-cache/snaps.
 #   2. any other folder passed -> Set SNAPS_DIR as passed argument.
-if [[ $SNAPS_DIR =~ ^.*wasta-offline/*$ ]]; then
+if [[ $SNAPS_DIR =~ ^.*wasta-offline$ ]]; then
     SNAPS_DIR="$SNAPS_DIR"/local-cache/snaps
     # Make sure SNAPS_DIR exists.
     mkdir -p "$SNAPS_DIR"
@@ -324,7 +325,6 @@ for i in ${seed_list[@]}; do
 done
 
 # Get list of snaps currently installed.
-#installed_list=$(snap list --all | grep -v Name)
 installed_list=$(snap list | grep -v Name)
 
 # Add these snap names to $snaps_local dictionary. Installed snaps will replace
@@ -333,12 +333,10 @@ installed_list=$(snap list | grep -v Name)
 while read -r line; do
     snap=$(echo "$line" | tr -s ' ' | cut -d' ' -f1)
     rev=$(echo "$line" | tr -s ' ' | cut -d' ' -f3)
-    #pub=$(echo "$line" | tr -s ' ' | cut -d' ' -f5)
-    #pub="${pub//✓}"
+
     fileloc=$SNAPS/${snap}_${rev}.snap
     size=$(stat --printf="%s" "$fileloc")
-    # "I" refers to snap state "installed" as opposed to "seeded".
-    #snaps_local["$snap"]="$rev $size I $pub"
+
     snaps_local["$snap"]="$rev $size I"
 done <<< "$installed_list"
 
@@ -480,8 +478,11 @@ for snap in ${!snaps_to_copy[@]}; do
     ((total_bytes_to_copy += $size))
 done
 
+
 # 5. Copy eligible snaps and asserts, checking disk space before each one.
 # ---------------------------------------------------------------------------
+echo "Copying snaps and assert files..."
+
 # Show progress dialog based on bytes copied.
 tmp_copy=$(mktemp "$TEMPLATE" --tmpdir)
 bytes_copied=0
