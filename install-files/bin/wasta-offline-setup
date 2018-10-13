@@ -44,6 +44,7 @@ set -o pipefail
 
 LOG_DATE=$(date +%F-%H-%M)
 HOST=$(uname -n)
+BASE=$(realpath $(dirname $0))
 
 # Need to store up log messages, since log location not set yet.
 MSG=\
@@ -107,7 +108,7 @@ as the apt-mirror base path.</i></small>
 
 <small><i><b>NOTE:</b> wasta [Offline] will be able to use <b>both</b>
 'local cache' <b>and</b> 'apt-mirror' repositories for local
-software updates or installs on other computers.</i></small>"
+software updates or installs on other computers.</i></small>" 2>/dev/null
   if [ "$?" -ne 0 ];
   then
     # User didn't say yes: exit
@@ -153,7 +154,7 @@ start folder: $START_FOLDER"
   FOLDER_SEL=$(zenity --file-selection \
     --directory --filename="$START_FOLDER" \
     --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
-    --title="Select or Create a 'wasta-offline' Folder")
+    --title="Select or Create a 'wasta-offline' Folder" 2>/dev/null)
   if [[ "$FOLDER_SEL" == *"wasta-offline" ]]
   then
     # valid wasta-offline folder
@@ -168,7 +169,7 @@ wasta-offline location: $WO_LOC"
       --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
       --text="<b>Selected Folder:</b> $FOLDER_SEL\n
 This folder is not a <b>'wasta-offline'</b> folder.\n
-wasta [Offline] Setup will now exit.\n\n<b>No processing done...</b>"
+wasta [Offline] Setup will now exit.\n\n<b>No processing done...</b>" 2>/dev/null
     exit 1
   fi
 fi
@@ -180,7 +181,7 @@ then
     --title="wasta [Offline] Setup: Exiting" \
     --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
     --text "No <b>'wasta-offline'</b> folder has been set.\n
-wasta-offline-setup will now exit.\n\n<b>No processing done...</b>"
+wasta-offline-setup will now exit.\n\n<b>No processing done...</b>" 2>/dev/null
   exit 1
 fi
 
@@ -296,7 +297,7 @@ if [ ${FREE_SPACE} -lt ${USE_SPACE} ]; then
 ${FREE_SPACE} bytes reported to be free.
 ${USE_SPACE}  bytes required to add new packages.
 
-Continue when ready."
+Continue when ready." 2>/dev/null
   if [ "$?" -ne 0 ];
   then
     # User canceled because they weren't ready with enough free space
@@ -336,7 +337,7 @@ RSYNC_PID=$!
 ) | zenity --progress --title="wasta [Offline] Setup: Copying Software Cache" \
     --pulsate --auto-close --width=500 --height=200 \
     --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
-    --text "Copying local software cache to wasta [Offline]...\n\n\n\n\n"
+    --text "Copying local software cache to wasta [Offline]...\n\n\n\n\n" 2>/dev/null
 
 if [ "$?" -ne 0 ];
 then
@@ -349,7 +350,7 @@ then
     --width=500 --height=200 --no-wrap \
     --text "<b>Copying Local Cache Canceled:</b> your computer's
 local cache not addded to the 'wasta-offline' folder.\n
-<b>wasta [Offline] Setup will now exit.</b>"
+<b>wasta [Offline] Setup will now exit.</b>" 2>/dev/null
   exit 1
 fi
 
@@ -383,7 +384,7 @@ SYNC_PID=$!
   --progress --title="wasta [Offline] Setup: Flushing file buffers to disk" \
   --pulsate --auto-close --width=500 --height=200 --no-cancel\
   --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
-  --text "Waiting for the disk to finish saving the files...\n\n\n\n\n"
+  --text "Waiting for the disk to finish saving the files...\n\n\n\n\n" 2>/dev/null
 
 
 # Package List
@@ -488,7 +489,7 @@ then
   --pulsate --auto-close --width=500 --height=200 \
   --no-cancel \
   --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
-  --text="Isolating obsolete packages in wasta [Offline]...\n\n\n\n\n"
+  --text="Isolating obsolete packages in wasta [Offline]...\n\n\n\n\n" 2>/dev/null
 else
   echo | tee -a "$LOG"
   echo "HINT: put a file named 'clean_me_up.txt' in             "|tee -a "$LOG"
@@ -532,7 +533,7 @@ DPKG_PID=$!
   --title="wasta [Offline] Setup: Generating Software Package List" \
   --pulsate --auto-close --width=500 --height=200 \
   --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
-  --text="Generating software list for wasta [Offline]...\n\n\n\n\n"
+  --text="Generating software list for wasta [Offline]...\n\n\n\n\n" 2>/dev/null
 
 #check return: if not zero then likely user canceled, 
 #  so need to kill dpkg process
@@ -545,7 +546,7 @@ then
     --width=500 --height=200 --no-wrap \
     --text "<b>Software Package Generation Canceled:</b> wasta [Offline] is
 <b>not</b> ready because the listing of software packages was not completed.\n
-<b>wasta [Offline] Setup will now exit.</b>"
+<b>wasta [Offline] Setup will now exit.</b>" 2>/dev/null
   exit 1
 fi
 
@@ -578,7 +579,7 @@ was not completed -likely due to a corrupt package-
 check the log 
 [${LOG}] 
 for dpkg-scanpackage details.
-<b>wasta [Offline] Setup will now exit.</b>"
+<b>wasta [Offline] Setup will now exit.</b>" 2>/dev/null
   exit 1
 fi
 # --------------------------------------------------------------------------
@@ -636,29 +637,25 @@ EOS
 
 fi
 
+# ------------------------------------------------------------------------------
+# Copy snap packages
+# ------------------------------------------------------------------------------
+
+# If /usr/bin/snap exists, then snapd & at least some seeded snaps are installed.
+#   wasta-offline-snap-setup will use its own log file, but there should at
+#   least be some mention of it in the wasta-offline-setup log.
+if [[ -x /usr/bin/snap ]]; then
+    echo | tee -a "$LOG"
+    echo $(date +%T) $HOST "wasta-offline-snap-setup started." | tee -a "$LOG"
+    echo "Its log file can be found in $WO_LOC/log/wasta-offline-snap-setup" | tee -a "$LOG"
+    echo | tee -a "$LOG"
+    sudo "$BASE"/wasta-offline-snap-setup "$WO_LOC"
+fi
+
 echo | tee -a "$LOG"
 echo "--------------------------------------------------------" | tee -a "$LOG"
 echo $(date +%T) $HOST "wasta-offline-setup complete          " | tee -a "$LOG"
 echo "========================================================" | tee -a "$LOG"
-
-# ------------------------------------------------------------------------------
-# Copy snap packages
-# ------------------------------------------------------------------------------
-# TODO: This could also possibly go before the above "wasta-offline-setup complete"
-
-# If /usr/bin/snap exists, then snapd & at least some seeded snaps are installed.
-# TODO: I would think wasta-offline-snap-setup should use its own log file.
-#   But there should at least be some mention of it in the wasta-offline-setup
-#   log.
-snap_setup_script=/usr/bin/wasta-offline-snap-setup
-snap_setup_script=/home/nate/dev/wasta-offline-setup/wasta-offline-setup/install-files/bin/wasta-offline-snap-setup
-if [[ -x /usr/bin/snap ]]; then
-    echo | tee -a "$LOG"
-    echo $(date +%T) $HOST "wasta-offline-snap-setup started" | tee -a "$LOG"
-    echo "Its log file can be found in $WO_LOC/log/wasta-offline-snap-setup" | tee -a "$LOG"
-    echo | tee -a "$LOG"
-    $snap_setup_script "$WO_LOC"
-fi
 
 # ------------------------------------------------------------------------------
 # Finished
@@ -671,14 +668,14 @@ zenity --question --title="wasta [Offline] Setup: Finished" \
 cache to wasta [Offline].</b>\n\n
 <i>wasta [Offline] is now ready for local software
 updates or installs on other computers.</i>\n\n
-<b>Would you like to view the log?\n\n</b>"
+<b>Would you like to view the log?\n\n</b>" 2>/dev/null
 
 if [ $? -eq 0 ];
 then
   #user said YES: show log
   zenity --text-info --title="wasta [Offline] Setup: Log" --width=650 \
     --height=500 --no-wrap --filename="$LOG" --font="Ubuntu Mono" \
-    --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png
+    --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png 2>/dev/null
 fi
 
 exit 0
