@@ -173,6 +173,7 @@ MSG+="
 
 wasta-offline snaps location: $SNAPS_DIR"
 
+# Delete write-access test file.
 rm -f "$SNAPS_DIR"/.test-write
 
 
