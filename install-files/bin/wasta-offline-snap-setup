@@ -76,6 +76,14 @@ while getopts ":hk:" opt; do
 done
 shift $((OPTIND-1))
 
+# Determine script mode.
+if [[ $1 ]]; then
+    # Arg passed, consider the script to be in non-interactive mode.
+    AUTO=1
+else
+    AUTO=0
+fi
+
 # Clean up argument if passed.
 SNAPS_DIR=$(realpath "$1" 2>/dev/null) # realpath removes trailing '/'s
 
@@ -305,6 +313,11 @@ show_progress() {
     }
 
 
+echo "-------------------------------------------------------" | tee -a "$LOG"
+echo "*** Copying snaps and assertions                       " | tee -a "$LOG"
+echo "-------------------------------------------------------" | tee -a "$LOG"
+echo
+
 # 1. Find all installed and seeded snaps, plus other useful details.
 # ---------------------------------------------------------------------------
 echo "Listing installed and seeded snaps..."
@@ -447,7 +460,7 @@ for snap in ${!snaps_to_copy[@]}; do
     fi
 
     prog=$(($ct*100/$total_ct))
-    echo "- creating assert file for $snap..."
+    #echo "- creating assert file for $snap..."
     echo -e "0\t$prog\t$snap" >> "$tmp_asserts"
     create_assert_file "$snap" "$rev" "$snap_id" "$tmp_asserts_dir"
     ((ct += 1))
@@ -502,7 +515,7 @@ for snap in ${!snaps_to_copy[@]}; do
     # Only copy snap and assert if there's enough room.
     if [[ $avail -gt $size ]]; then
         prog=$(($bytes_copied*100/$total_bytes_to_copy))
-        echo "- copying snap [& assert] for ${snap}_${rev} to $SNAPS_DIR..."
+        #echo "- copying snap [& assert] for ${snap}_${rev} to $SNAPS_DIR..."
         echo -e "0\t$prog\t$snap\t$rev" >> "$tmp_copy"
         snap_rev="${snap}_${rev}"
 
@@ -533,7 +546,9 @@ for snap in ${!snaps_to_copy[@]}; do
         text="Not enough room left on device $disk.\n\n \
 Please clear up some space and try again or use a different disk."
         echo "$text"
-        zenity --error "${ZDEFAULTS[@]}" --text="$text" 2>/dev/null
+        if [[ $AUTO -eq 0 ]]; then
+            zenity --error "${ZDEFAULTS[@]}" --text="$text" 2>/dev/null
+        fi
         echo "1" >> "$tmp_copy"
         script_exit 1
         exit 1
