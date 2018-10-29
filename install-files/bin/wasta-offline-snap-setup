@@ -297,10 +297,19 @@ show_progress() {
 
     prog_opts="--progress --auto-close"
     while [[ $(ps --no-headers -p "$proc_pid") ]]; do
+        if [[ -d $dest_dir ]]; then
+            bytes_dest_current=$(($(du "$dest_dir" | cut -f1) * 1024))
+            bytes_copied=$(($bytes_dest_current - $bytes_dest_initial))
+            prog=$(($bytes_copied*100/$total_bytes_to_copy))
+        else
+            prog=$(tail -n1 "$data_src" | cut -f2)
+        fi
+
         ec=$(tail -n1 "$data_src" | cut -f1)
-        prog=$(tail -n1 "$data_src" | cut -f2)
         snap=$(tail -n1 "$data_src" | cut -f3)
         rev=$(tail -n1 "$data_src" | cut -f4)
+
+
         
         if [[ $ec -gt 0 ]]; then
             script_exit "$ec" "$proc_pid"
@@ -498,6 +507,7 @@ echo "Copying snaps and assert files..."
 
 # Show progress dialog based on bytes copied.
 tmp_copy=$(mktemp "$TEMPLATE" --tmpdir)
+bytes_dest_initial=$(($(du -s "$SNAPS_DIR" | cut -f1) * 1024))
 bytes_copied=0
 (
 # Copy each snap only if there is enough room on SNAPS_DIR disk.
@@ -514,8 +524,7 @@ for snap in ${!snaps_to_copy[@]}; do
     avail=$(df -B1 --output=avail "$SNAPS_DIR" | tail -n1)
     # Only copy snap and assert if there's enough room.
     if [[ $avail -gt $size ]]; then
-        prog=$(($bytes_copied*100/$total_bytes_to_copy))
-        #echo "- copying snap [& assert] for ${snap}_${rev} to $SNAPS_DIR..."
+        prog=1 #$(($bytes_copied*100/$total_bytes_to_copy))
         echo -e "0\t$prog\t$snap\t$rev" >> "$tmp_copy"
         snap_rev="${snap}_${rev}"
 
@@ -536,13 +545,14 @@ for snap in ${!snaps_to_copy[@]}; do
         fi
 
         # Copy snap and assert files to $SNAPS_DIR.
+        #   Note: Progress may seem disjointed because files on FAT32 disks are
+        #   reported to be written well before they actually are.
         cp "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/
         cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
         chmod 777 "$SNAPS_DIR"/"$snap_rev"*
-        ((bytes_copied += $size))
+        #((bytes_copied += $size))
     else
-        disk=$(df /media/nate/Nates16GB/wasta-offline | tail -n1 | tr -s ' ' | \
-                cut -d ' ' -f1)
+        disk=$(df "$SNAPS_DIR" | tail -n1 | tr -s ' ' | cut -d ' ' -f1)
         text="Not enough room left on device $disk.\n\n \
 Please clear up some space and try again or use a different disk."
         echo "$text"
@@ -562,11 +572,31 @@ text="Copying snaps to:\n\n \
 \t$SNAPS_DIR\n\n \
 This may take some time, especially on a USB 2.0 device.\n\n \
 Copying"
-show_progress "$COPY_PID" "$tmp_copy" "$SNAPS_DIR" "$text"
+
+prog_opts="--progress --auto-close"
+while [[ $(ps --no-headers -p "$COPY_PID") ]]; do
+    bytes_dest_current=$(($(du -s "$SNAPS_DIR" | cut -f1) * 1024))
+    bytes_copied=$(($bytes_dest_current - $bytes_dest_initial))
+    prog=$(($bytes_copied * 100 / $total_bytes_to_copy - 1))
+
+    ec=$(tail -n1 "$tmp_copy" | cut -f1)
+    snap=$(tail -n1 "$tmp_copy" | cut -f3)
+    rev=$(tail -n1 "$tmp_copy" | cut -f4)
+
+    if [[ $ec -gt 0 ]]; then
+        script_exit "$ec" "$COPY_PID"
+    fi
+    
+    echo "$prog"
+    echo "#$text $snap..."
+    sleep 0.2
+done | zenity ${prog_opts[@]} "${ZDEFAULTS[@]}" 2>/dev/null
 ec=$?
 if [[ $ec -gt 0 ]]; then
     script_exit "$ec" "$COPY_PID"
 fi
+# TODO: The progress windows closes too soon. Maybe due to rounding up too quckly to 100%?
+wait "$COPY_PID"
 
 #TODO: Do we even need to keep a record of snaps copied?
 declare -A snaps_copied
