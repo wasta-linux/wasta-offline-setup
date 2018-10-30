@@ -279,7 +279,6 @@ script_exit() {
 echo "-------------------------------------------------------" | tee -a "$LOG"
 echo "*** Copying snaps and assertions                       " | tee -a "$LOG"
 echo "-------------------------------------------------------" | tee -a "$LOG"
-echo
 # Add stored info.
 echo -e "$MSG" | tee -a "$LOG"
 
