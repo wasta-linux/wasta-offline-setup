@@ -397,7 +397,8 @@ done
 #   /var/lib/snapd/cache is even more restricted with the folder being 0700.
 #   It looks like this script will need sudo privileges in the end.
 #   https://forum.snapcraft.io/t/permissions-of-snap-files-in-var-lib-snapd-snaps/1462/3
-echo "Preparing to copy newest snaps and assert files to $SNAPS_DIR."
+echo -e "Preparing to copy newest snaps and assert files to:
+\t$SNAPS_DIR"
 
 # Determine which local snaps are eligible to be copied.
 declare -A snaps_to_copy
@@ -428,7 +429,7 @@ done
 # ---------------------------------------------------------------------------
 echo "Creating assert files for installed snaps..."
 
-# Create dictionary of snaps and snap-ids.
+# Create dictionary of snaps and snap-ids from SNAPD_API.
 snaps_addr=v2/snaps
 snaps_count=$(snap list | grep -vE '^Name\s*Version.*' | grep -v disabled | wc -l)
 json=$(curl --silent --unix-socket "$SOCKET" "$SNAPD_API"/"$snaps_addr")
@@ -438,12 +439,16 @@ declare -A snap_ids
 i=0
 while [[ $i -lt $snaps_count ]]; do
     snap="${names[$i]}"
-    snap="${snap#\"}" #}"
-    snap="${snap%\"}" #}"
-    
+    # Strip double quotes around snap names.
+    snap="${snap#\"}" #}" # the last chars are to fix syntax highlighting in gedit
+    snap="${snap%\"}" #}" # ditto
+
     snap_id="${ids[$i]}"
+    # Strip double quotes around snap ids.
     snap_id="${snap_id#\"}" #}" # the last chars are to fix syntax highlighting in gedit
     snap_id="${snap_id%\"}" #}" # ditto
+    
+    # Add snap and id to dictionary.
     snap_ids["$snap"]="$snap_id"
     ((i++))
 done
@@ -451,9 +456,9 @@ done
 # Send assert creation to the background & log output to tempfile.
 tmp_asserts_dir=$(mktemp -d "$TEMPLATE" --tmpdir)
 #TODO: The output to this tempfile should probably go to a log file instead.
-tmp_asserts=$(mktemp "$TEMPLATE" --tmpdir)
+#tmp_asserts=$(mktemp "$TEMPLATE" --tmpdir)
 total_ct="${#snaps_to_copy[@]}"
-(
+
 ct=0
 for snap in ${!snaps_to_copy[@]}; do
     data="${snaps_to_copy[$snap]}"
@@ -468,26 +473,12 @@ for snap in ${!snaps_to_copy[@]}; do
         continue
     fi
 
-    prog=$(($ct*100/$total_ct))
+    #prog=$(($ct*100/$total_ct))
     #echo "- creating assert file for $snap..."
-    echo -e "0\t$prog\t$snap" >> "$tmp_asserts"
+    #echo -e "0\t$prog\t$snap" >> "$tmp_asserts"
     create_assert_file "$snap" "$rev" "$snap_id" "$tmp_asserts_dir"
     ((ct += 1))
 done
-) &
-ASSERT_PID=$!
-
-# TODO: I'm not sure we need a progress window here. Assert creation goes
-#   rather quickly now.
-# Read tempfile to get data for progress dialog while ASSERT_PID exists.
-text="Some assert files need to be created. Please be patient.\n\n \
-Creating assert file for"
-show_progress "$ASSERT_PID" "$tmp_asserts" "none" "$text"
-# For some reason this doesn't kill the subprocess if included within the show_progress function.
-ec=$?
-if [[ $ec -gt 0 ]]; then
-    script_exit "$ec" "$ASSERT_PID"
-fi
 
 # Calculate total size of all snaps to be copied for use in progress window.
 #   We could try to include assert sizes in this calculation, but that's a lot
@@ -524,8 +515,7 @@ for snap in ${!snaps_to_copy[@]}; do
     avail=$(df -B1 --output=avail "$SNAPS_DIR" | tail -n1)
     # Only copy snap and assert if there's enough room.
     if [[ $avail -gt $size ]]; then
-        prog=1 #$(($bytes_copied*100/$total_bytes_to_copy))
-        echo -e "0\t$prog\t$snap\t$rev" >> "$tmp_copy"
+        echo -e "0\t$snap\t$rev" >> "$tmp_copy"
         snap_rev="${snap}_${rev}"
 
         # Source folders for installed snaps.
@@ -550,7 +540,6 @@ for snap in ${!snaps_to_copy[@]}; do
         cp "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/
         cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
         chmod 777 "$SNAPS_DIR"/"$snap_rev"*
-        #((bytes_copied += $size))
     else
         disk=$(df "$SNAPS_DIR" | tail -n1 | tr -s ' ' | cut -d ' ' -f1)
         text="Not enough room left on device $disk.\n\n \
@@ -580,8 +569,8 @@ while [[ $(ps --no-headers -p "$COPY_PID") ]]; do
     prog=$(($bytes_copied * 100 / $total_bytes_to_copy - 1))
 
     ec=$(tail -n1 "$tmp_copy" | cut -f1)
-    snap=$(tail -n1 "$tmp_copy" | cut -f3)
-    rev=$(tail -n1 "$tmp_copy" | cut -f4)
+    snap=$(tail -n1 "$tmp_copy" | cut -f2)
+    rev=$(tail -n1 "$tmp_copy" | cut -f3)
 
     if [[ $ec -gt 0 ]]; then
         script_exit "$ec" "$COPY_PID"
@@ -595,17 +584,26 @@ ec=$?
 if [[ $ec -gt 0 ]]; then
     script_exit "$ec" "$COPY_PID"
 fi
-# TODO: The progress windows closes too soon. Maybe due to rounding up too quckly to 100%?
-wait "$COPY_PID"
+# Sync writes to disk before continuing.
+sync 2>&1 >> "$LOG" &
+SYNC_PID=$!
 
-#TODO: Do we even need to keep a record of snaps copied?
-declare -A snaps_copied
-# Apparently can't assign to array within the show_progress function above.
-while read l; do
-    name=$(echo "$l" | cut -f3)
-    rev=$(echo "$l" | cut -f4)
-    snaps_copied["$name"]="$rev"
-done < "$tmp_copy"
+# Show sync progress.
+text="Waiting for the disk to finish saving the files...\n\n\n \
+This may take some time, especially on a USB 2.0 device.\n \
+Elapsed Time: $ct seconds"
+prog_opts="--progress --pulsate --auto-close --auto-kill --no-cancel"
+(
+    ct=0
+    while [[ $(ps --no-headers -p $SYNC_PID) ]]; do
+        echo "#"
+        sleep 1
+        ((ct++))
+    done
+
+    echo | tee -a "$LOG"
+    echo "Info: flushing file buffers to disk (sync) took approximately $ct seconds." | tee -a "$LOG"  
+) | zenity ${prog_opts[@]} "${ZDEFAULTS[@]}" 2>/dev/null
 
 
 # 6. Delete old revisions, keeping only the $MAX most recent ones.
@@ -646,8 +644,6 @@ for snap in ${!snaps_offline[@]}; do
     done
 done
 
-# TODO: I think this happens fast enough to not need a progress window. But
-#   that can be reconsidered after more testing.
 # Remove all snaps and asserts of given revision numbers.
 for snap in ${!snaps_removed[@]}; do
     for rev in ${snaps_removed[$snap]}; do
