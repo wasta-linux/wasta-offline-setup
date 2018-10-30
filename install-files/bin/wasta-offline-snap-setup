@@ -326,10 +326,11 @@ echo "-------------------------------------------------------" | tee -a "$LOG"
 echo "*** Copying snaps and assertions                       " | tee -a "$LOG"
 echo "-------------------------------------------------------" | tee -a "$LOG"
 echo
+echo $MSG | tee -a "$LOG"
 
 # 1. Find all installed and seeded snaps, plus other useful details.
 # ---------------------------------------------------------------------------
-echo "Listing installed and seeded snaps..."
+echo "Listing installed and seeded snaps..." | tee -a "$LOG"
 
 # Get list of seeded snaps in /var/lib/snapd/seed
 seed_list=$(find "$SEEDS"/snaps -name '*.snap' 2>/dev/null)
@@ -398,7 +399,7 @@ done
 #   It looks like this script will need sudo privileges in the end.
 #   https://forum.snapcraft.io/t/permissions-of-snap-files-in-var-lib-snapd-snaps/1462/3
 echo -e "Preparing to copy newest snaps and assert files to:
-\t$SNAPS_DIR"
+\t$SNAPS_DIR"  | tee -a "$LOG"
 
 # Determine which local snaps are eligible to be copied.
 declare -A snaps_to_copy
@@ -427,7 +428,7 @@ done
 
 # 4. Create asserts for installed snaps; store in /tmp folder
 # ---------------------------------------------------------------------------
-echo "Creating assert files for installed snaps..."
+echo "Creating assert files for installed snaps..." | tee -a "$LOG"
 
 # Create dictionary of snaps and snap-ids from SNAPD_API.
 snaps_addr=v2/snaps
@@ -494,7 +495,7 @@ done
 
 # 5. Copy eligible snaps and asserts, checking disk space before each one.
 # ---------------------------------------------------------------------------
-echo "Copying snaps and assert files..."
+echo "Copying snaps and assert files..." | tee -a "$LOG"
 
 # Show progress dialog based on bytes copied.
 tmp_copy=$(mktemp "$TEMPLATE" --tmpdir)
@@ -528,7 +529,7 @@ for snap in ${!snaps_to_copy[@]}; do
             src_asserts="$SEEDS"/assertions
         else
             # Not really possible.
-            echo "Snap source location not known. Exiting."
+            echo "Snap source location not known. Exiting."  | tee -a "$LOG"
             echo "1" >> "$tmp_copy"
             script_exit 1
             exit 1
@@ -544,7 +545,7 @@ for snap in ${!snaps_to_copy[@]}; do
         disk=$(df "$SNAPS_DIR" | tail -n1 | tr -s ' ' | cut -d ' ' -f1)
         text="Not enough room left on device $disk.\n\n \
 Please clear up some space and try again or use a different disk."
-        echo "$text"
+        echo "$text" | tee -a "$LOG"
         if [[ $AUTO -eq 0 ]]; then
             zenity --error "${ZDEFAULTS[@]}" --text="$text" 2>/dev/null
         fi
@@ -590,13 +591,12 @@ SYNC_PID=$!
 
 # Show sync progress.
 text="Waiting for the disk to finish saving the files...\n\n\n \
-This may take some time, especially on a USB 2.0 device.\n \
-Elapsed Time: $ct seconds"
+This may take some time, especially on a USB 2.0 device.\n"
 prog_opts="--progress --pulsate --auto-close --auto-kill --no-cancel"
 (
     ct=0
     while [[ $(ps --no-headers -p $SYNC_PID) ]]; do
-        echo "#"
+        echo "#$text\nElapsed Time: $ct seconds"
         sleep 1
         ((ct++))
     done
@@ -609,7 +609,7 @@ prog_opts="--progress --pulsate --auto-close --auto-kill --no-cancel"
 # 6. Delete old revisions, keeping only the $MAX most recent ones.
 # ---------------------------------------------------------------------------
 # Get snaps in offline directory.
-echo "Listing snaps in offline folder..."
+echo "Listing snaps in offline folder..." | tee -a "$LOG"
 available_list=$(find "$SNAPS_DIR"/ -name '*.snap')
 # Build up-to-date dictionary of offline snaps and revisions in SNAPS_DIR.
 #   The revision numbers are space-delimited; e.g. ("[skype]"="54 57 ").
@@ -623,7 +623,7 @@ for a in ${available_list[@]}; do
 done
 
 # Sort revisions listed for each snap. Remove all but $MAX higest revisions.
-echo "Removing old snap versions..."
+echo "Removing old snap versions..." | tee -a "$LOG"
 # Create dictionary of snaps and revisions to be removed.
 declare -A snaps_removed
 for snap in ${!snaps_offline[@]}; do
@@ -651,6 +651,6 @@ for snap in ${!snaps_removed[@]}; do
         rm -f "$SNAPS_DIR"/"${snap}_${rev}.assert"
     done
 done
-echo "Done."
+echo "Done." | tee -a "$LOG"
 
 script_exit 0
