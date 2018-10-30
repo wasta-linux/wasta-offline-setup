@@ -1,30 +1,19 @@
 #!/bin/bash
 
 # TODO:
-#   - Some kind of assurance than only stable-channel snaps are copied.
-#   - Add log file.
-#   - Add sync command to ensure writing is complete.
+#   - Use PolicyKit instead of sudo for authentication.
 #   - Add a post-transfer file integrity check for $SNAPS_DIR?
-#   - Figure out how to show file copy progress by byte rather than by whole file.
 
 # =============================================================================
-# This script should:
-# 1. Create a dictionary of information about local snaps.
+# This script does the following:
+# 1. Creates a dictionary of information about local snaps.
 #       Start with seeds.
 #       Add/overwrite from installed snaps, keeping highest revisions.
-# 2. Create a dictionary of snaps and revisions in SNAPS_DIR
-# 3. Determine which snaps should be copied.
-# 4. Create assert files for all installed snaps that should be copied.
-# 5. Copy each snap and its assert to SNAPS_DIR.
-# 6. Remove extra snaps from SNAPS_DIR.
-#
-# The result in the offline folder should look like this:
-#   snap1_23.assert
-#   snap1_23.snap
-#   snap2_157.assert
-#   snap2_157.snap
-#   ...
-#
+# 2. Creates a dictionary of snaps and revisions in SNAPS_DIR
+# 3. Determines which snaps should be copied.
+# 4. Creates assert files for all installed snaps that should be copied.
+# 5. Copies each snap and its assert to SNAPS_DIR.
+# 6. Removes extra snaps from SNAPS_DIR.
 # =============================================================================
 
 # Require root privileges.
@@ -51,8 +40,7 @@ destination will be requested interactively.
 "
 
 # Default number of snap revisions kept in offline folder.
-# TODO: Change this to 2 after thorough testing of wasta-snap-manager.
-MAX=3
+MAX=2
 
 # Evaluate options.
 while getopts ":hk:" opt; do
@@ -95,7 +83,7 @@ HOST=$(uname -n)
 ZTITLE="wasta [Offline] Snap Setup"
 ZHEIGHT=200
 ZWIDTH=500
-ZICON=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png
+ZICON=/usr/share/icons/hicolor/256x256/apps/wasta-offline.png
 ZDEFAULTS=(--title="$ZTITLE" --height="$ZHEIGHT" --width="$ZWIDTH" --window-icon="$ZICON")
 
 # Determine if $SUDO_USER has write access to passed $SNAPS_DIR.
@@ -127,9 +115,9 @@ while [[ $no_write_access ]]; do
     fi
     ((count++))
 
-    text="Searching system for wasta-offline folder..."
+    text="Searching system for wasta-offline folder...\n\n\n\n\n"
     prog_opts="--progress --pulsate --auto-close --auto-kill --no-cancel"
-    # Using SUDO_USER to try to limit the scope of the 'find' command below.
+    # Using $SUDO_USER to try to limit the scope of the 'find' command below.
     #   Convoluted yet functional zenity subprocess inspired by this article:
     #   http://wiki.bash-hackers.org/zenity_--progress
     wo_list=$(
@@ -140,13 +128,14 @@ while [[ $no_write_access ]]; do
                 )
         )
     if [[ -z $wo_list ]]; then
+        # No wasta-offline folder found. Start in user's $HOME.
         START_FOLDER=/home/"$SUDO_USER"/
     else
         for d in ${wo_list[@]}; do
-            # Look for "local-cache" subfolder of "wasta-offline" folder.
+            # Look for 'local-cache' subfolder of 'wasta-offline' folder.
             loc_cache=$(find "$d" -maxdepth 1 -name 'local-cache' -type d 2>/dev/null)
             if [[ $loc_cache =~ ^/media/.*$ ]]; then
-                # Automatically accept 'wasta-offline' folder in /media/...
+                # Automatically accept 'wasta-offline' folder found somewhere under /media/...
                 START_FOLDER="$d"
                 break
             elif [[ $loc_cache ]]; then
@@ -160,7 +149,8 @@ while [[ $no_write_access ]]; do
         done
     fi
 
-    MSG+="\nstart folder: $START_FOLDER\n\n"
+    # Store $START_FOLDER for later writing to $LOG.
+    MSG+="\nstart folder:\n\t$START_FOLDER\n\n"
   
     SNAPS_DIR=$(
         zenity --file-selection --directory --filename="$START_FOLDER" \
@@ -182,20 +172,20 @@ rm -f "$SNAPS_DIR"/.test-write
 
 # Set log location.
 LOG_DIR="$SNAPS_DIR/log/wasta-offline-snap-setup"
-mkdir -p $LOG_DIR
+mkdir --mode=777 --parents $LOG_DIR
 LOG="$LOG_DIR/$LOG_DATE-$HOST.log"
 
-# Need to be able to handle 2 types of SNAPS_DIRs:
-#   1. "wasta-offline" folder -> Set SNAPS_DIR as wasta-offline/local-cache/snaps.
-#   2. any other folder passed -> Set SNAPS_DIR as passed argument.
+# Need to be able to handle 2 types of $SNAPS_DIRs:
+#   1. "wasta-offline" folder -> Set $SNAPS_DIR as wasta-offline/local-cache/snaps.
+#   2. any other folder passed -> Set $SNAPS_DIR as passed argument.
 if [[ $SNAPS_DIR =~ ^.*wasta-offline$ ]]; then
     SNAPS_DIR="$SNAPS_DIR"/local-cache/snaps
-    # Make sure SNAPS_DIR exists.
-    mkdir -p "$SNAPS_DIR"
+    # Make sure $SNAPS_DIR exists.
+    mkdir --mode=777 --parents "$SNAPS_DIR"
 fi
 
 # $SNAPS_DIR now successfully set with $SUDO_USER having non-sudo write access.
-MSG+="wasta-offline snaps location: $SNAPS_DIR\n"
+MSG+="wasta-offline snaps location:\n\t$SNAPS_DIR\n"
 
 # snapd API variables
 #   docs: https://docs.ubuntu.com/core/en/reference/rest
@@ -285,56 +275,27 @@ script_exit() {
     }
 
 
-# Show progress of slow-moving subprocess using zenity dialog.
-show_progress() {
-    proc_pid="$1"
-    data_src="$2"
-    dest_dir="$3"
-    info_txt="${@:4}"
-
-    prog_opts="--progress --auto-close"
-    while [[ $(ps --no-headers -p "$proc_pid") ]]; do
-        if [[ -d $dest_dir ]]; then
-            bytes_dest_current=$(($(du "$dest_dir" | cut -f1) * 1024))
-            bytes_copied=$(($bytes_dest_current - $bytes_dest_initial))
-            prog=$(($bytes_copied*100/$total_bytes_to_copy))
-        else
-            prog=$(tail -n1 "$data_src" | cut -f2)
-        fi
-
-        ec=$(tail -n1 "$data_src" | cut -f1)
-        snap=$(tail -n1 "$data_src" | cut -f3)
-        rev=$(tail -n1 "$data_src" | cut -f4)
-
-
-        
-        if [[ $ec -gt 0 ]]; then
-            script_exit "$ec" "$proc_pid"
-        fi
-        
-        echo "$prog"
-        echo "#$info_txt $snap..."
-        sleep 0.2
-    done | zenity ${prog_opts[@]} "${ZDEFAULTS[@]}" 2>/dev/null
-    }
-
-
+# Write $LOG header.
 echo "-------------------------------------------------------" | tee -a "$LOG"
 echo "*** Copying snaps and assertions                       " | tee -a "$LOG"
 echo "-------------------------------------------------------" | tee -a "$LOG"
 echo
+# Add stored info.
 echo -e "$MSG" | tee -a "$LOG"
+
 
 # 1. Find all installed and seeded snaps, plus other useful details.
 # ---------------------------------------------------------------------------
-echo "Listing installed and seeded snaps..." | tee -a "$LOG"
+echo "Listing seeded and installed snaps..." | tee -a "$LOG"
+echo "-------------------------------------------------------" >> "$LOG"
 
 # Get list of seeded snaps in /var/lib/snapd/seed
-seed_list=$(find "$SEEDS"/snaps -name '*.snap' 2>/dev/null)
+seeded_list=$(find "$SEEDS"/snaps -name '*.snap' 2>/dev/null)
+echo -e "Seeded snaps:\n$seeded_list\n" >> "$LOG"
 
 # Add these snap names to $snaps_local dictionary.
 declare -A snaps_local
-for i in ${seed_list[@]}; do
+for i in ${seeded_list[@]}; do
     filename="${i##*/}"
     filetitle="${filename//.*}"
     snap="${filetitle%_*}"
@@ -346,6 +307,7 @@ done
 
 # Get list of snaps currently installed.
 installed_list=$(snap list | grep -v Name)
+echo -e "Installed snaps:\n$installed_list\n" >> "$LOG"
 
 # Add these snap names to $snaps_local dictionary. Installed snaps will replace
 #   seeded snaps of the same name. Installed snaps should always have an equal
@@ -395,8 +357,6 @@ done
 #   /var/lib/snapd/cache is even more restricted with the folder being 0700.
 #   It looks like this script will need sudo privileges in the end.
 #   https://forum.snapcraft.io/t/permissions-of-snap-files-in-var-lib-snapd-snaps/1462/3
-echo -e "Preparing to copy newest snaps and assert files to:
-\t$SNAPS_DIR"  | tee -a "$LOG"
 
 # Determine which local snaps are eligible to be copied.
 declare -A snaps_to_copy
@@ -426,6 +386,7 @@ done
 # 4. Create asserts for installed snaps; store in /tmp folder
 # ---------------------------------------------------------------------------
 echo "Creating assert files for installed snaps..." | tee -a "$LOG"
+echo "-------------------------------------------------------" >> "$LOG"
 
 # Create dictionary of snaps and snap-ids from SNAPD_API.
 snaps_addr=v2/snaps
@@ -453,8 +414,6 @@ done
 
 # Send assert creation to the background & log output to tempfile.
 tmp_asserts_dir=$(mktemp -d "$TEMPLATE" --tmpdir)
-#TODO: The output to this tempfile should probably go to a log file instead.
-#tmp_asserts=$(mktemp "$TEMPLATE" --tmpdir)
 total_ct="${#snaps_to_copy[@]}"
 
 ct=0
@@ -471,16 +430,12 @@ for snap in ${!snaps_to_copy[@]}; do
         continue
     fi
 
-    #prog=$(($ct*100/$total_ct))
-    #echo "- creating assert file for $snap..."
-    #echo -e "0\t$prog\t$snap" >> "$tmp_asserts"
+    echo -e "\t${snap}_${rev}.assert" >> "$LOG"
     create_assert_file "$snap" "$rev" "$snap_id" "$tmp_asserts_dir"
     ((ct += 1))
 done
 
 # Calculate total size of all snaps to be copied for use in progress window.
-#   We could try to include assert sizes in this calculation, but that's a lot
-#   of work when you consider that each one is less than 6 KiB.
 total_bytes_to_copy=0
 for snap in ${!snaps_to_copy[@]}; do
     data="${snaps_to_copy[$snap]}"
@@ -488,11 +443,13 @@ for snap in ${!snaps_to_copy[@]}; do
     size="${rem3%% *}"
     ((total_bytes_to_copy += $size))
 done
+echo -e "\nTotal bytes to copy: $total_bytes_to_copy bytes\n" >> "$LOG"
 
 
 # 5. Copy eligible snaps and asserts, checking disk space before each one.
 # ---------------------------------------------------------------------------
 echo "Copying snaps and assert files..." | tee -a "$LOG"
+echo "-------------------------------------------------------" >> "$LOG"
 
 # Show progress dialog based on bytes copied.
 tmp_copy=$(mktemp "$TEMPLATE" --tmpdir)
@@ -535,6 +492,7 @@ for snap in ${!snaps_to_copy[@]}; do
         # Copy snap and assert files to $SNAPS_DIR.
         #   Note: Progress may seem disjointed because files on FAT32 disks are
         #   reported to be written well before they actually are.
+        echo -e "\t$snap_rev.snap and $snap_rev.assert" >> "$LOG"
         cp "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/
         cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
         chmod 777 "$SNAPS_DIR"/"$snap_rev"*
@@ -555,8 +513,8 @@ done
 COPY_PID=$!
 
 # Read tempfile to get data for Zenity progress dialog while COPY_PID exists.
-text="Copying snaps to:\n\n \
-\t$SNAPS_DIR\n\n \
+text="Copying snaps to:\n\n\
+\t$SNAPS_DIR\n\n\
 This may take some time, especially on a USB 2.0 device.\n\n \
 Copying"
 
@@ -564,7 +522,7 @@ prog_opts="--progress --auto-close"
 while [[ $(ps --no-headers -p "$COPY_PID") ]]; do
     bytes_dest_current=$(($(du -s "$SNAPS_DIR" | cut -f1) * 1024))
     bytes_copied=$(($bytes_dest_current - $bytes_dest_initial))
-    prog=$(($bytes_copied * 100 / $total_bytes_to_copy - 1))
+    progress=$(($bytes_copied * 100 / $total_bytes_to_copy - 1))
 
     ec=$(tail -n1 "$tmp_copy" | cut -f1)
     snap=$(tail -n1 "$tmp_copy" | cut -f2)
@@ -574,7 +532,7 @@ while [[ $(ps --no-headers -p "$COPY_PID") ]]; do
         script_exit "$ec" "$COPY_PID"
     fi
     
-    echo "$prog"
+    echo "$progress"
     echo "#$text $snap..."
     sleep 0.2
 done | zenity ${prog_opts[@]} "${ZDEFAULTS[@]}" 2>/dev/null
@@ -583,23 +541,23 @@ if [[ $ec -gt 0 ]]; then
     script_exit "$ec" "$COPY_PID"
 fi
 # Sync writes to disk before continuing.
+echo "Writing cached files to destination..." | tee -a "$LOG"
 sync 2>&1 >> "$LOG" &
 SYNC_PID=$!
 
 # Show sync progress.
-text="Waiting for the disk to finish saving the files...\n\n\n \
+text="Waiting for the disk to finish saving the files...\n\n\n\
 This may take some time, especially on a USB 2.0 device.\n"
 prog_opts="--progress --pulsate --auto-close --auto-kill --no-cancel"
 (
-    ct=0
-    while [[ $(ps --no-headers -p $SYNC_PID) ]]; do
-        echo "#$text\nElapsed Time: $ct seconds"
-        sleep 1
-        ((ct++))
-    done
+ct=0
+while [[ $(ps --no-headers -p $SYNC_PID) ]]; do
+    echo "#$text\nElapsed Time: $ct seconds"
+    sleep 1
+    ((ct++))
+done
 
-    echo | tee -a "$LOG"
-    echo "Info: flushing file buffers to disk (sync) took approximately $ct seconds." | tee -a "$LOG"  
+echo -e "\nInfo: flushing file buffers to disk (sync) took approximately $ct seconds.\n" >> "$LOG"
 ) | zenity ${prog_opts[@]} "${ZDEFAULTS[@]}" 2>/dev/null
 
 
@@ -607,7 +565,15 @@ prog_opts="--progress --pulsate --auto-close --auto-kill --no-cancel"
 # ---------------------------------------------------------------------------
 # Get snaps in offline directory.
 echo "Listing snaps in offline folder..." | tee -a "$LOG"
+echo "-------------------------------------------------------" >> "$LOG"
+
 available_list=$(find "$SNAPS_DIR"/ -name '*.snap')
+for i in ${available_list[@]}; do
+    filename=${i##*/}
+    echo -e "\t$filename" >> "$LOG"
+done
+echo >> "$LOG"
+
 # Build up-to-date dictionary of offline snaps and revisions in SNAPS_DIR.
 #   The revision numbers are space-delimited; e.g. ("[skype]"="54 57 ").
 declare -A snaps_offline
@@ -644,10 +610,12 @@ done
 # Remove all snaps and asserts of given revision numbers.
 for snap in ${!snaps_removed[@]}; do
     for rev in ${snaps_removed[$snap]}; do
+        echo -e "\t${snap}_${rev}.snap and ${snap}_${rev}.assert" >> "$LOG"
         rm -f "$SNAPS_DIR"/"${snap}_${rev}.snap"
         rm -f "$SNAPS_DIR"/"${snap}_${rev}.assert"
     done
 done
+echo >> "$LOG"
 echo "Done." | tee -a "$LOG"
 
 script_exit 0
