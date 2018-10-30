@@ -160,9 +160,7 @@ while [[ $no_write_access ]]; do
         done
     fi
 
-    MSG+="
-
-start folder: $START_FOLDER"
+    MSG+="\nstart folder: $START_FOLDER\n\n"
   
     SNAPS_DIR=$(
         zenity --file-selection --directory --filename="$START_FOLDER" \
@@ -177,10 +175,6 @@ start folder: $START_FOLDER"
     no_write_access=$(sudo -u $SUDO_USER touch "$SNAPS_DIR"/.test-write 2>&1)
 done
 
-# $SNAPS_DIR now successfully set with $SUDO_USER having non-sudo write access.
-MSG+="
-
-wasta-offline snaps location: $SNAPS_DIR"
 
 # Delete write-access test file.
 rm -f "$SNAPS_DIR"/.test-write
@@ -199,6 +193,9 @@ if [[ $SNAPS_DIR =~ ^.*wasta-offline$ ]]; then
     # Make sure SNAPS_DIR exists.
     mkdir -p "$SNAPS_DIR"
 fi
+
+# $SNAPS_DIR now successfully set with $SUDO_USER having non-sudo write access.
+MSG+="wasta-offline snaps location: $SNAPS_DIR\n"
 
 # snapd API variables
 #   docs: https://docs.ubuntu.com/core/en/reference/rest
@@ -326,7 +323,7 @@ echo "-------------------------------------------------------" | tee -a "$LOG"
 echo "*** Copying snaps and assertions                       " | tee -a "$LOG"
 echo "-------------------------------------------------------" | tee -a "$LOG"
 echo
-echo $MSG | tee -a "$LOG"
+echo -e "$MSG" | tee -a "$LOG"
 
 # 1. Find all installed and seeded snaps, plus other useful details.
 # ---------------------------------------------------------------------------
