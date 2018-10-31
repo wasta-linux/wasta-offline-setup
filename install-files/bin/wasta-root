@@ -1,0 +1,9 @@
+#!/bin/bash
+
+if [[ $1 == 'init' ]]; then
+    # Just initializing root privileges.
+    exit 0
+elif [[ $1 == 'cp' ]]; then
+    # Copying with root privileges.
+    cp "$2" "$3"
+fi
