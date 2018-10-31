@@ -648,7 +648,7 @@ if [[ -x /usr/bin/snap ]]; then
     echo $(date +%T) $HOST "wasta-offline-snap-setup started." | tee -a "$LOG"
     echo "Its log file can be found in $WO_LOC/log/wasta-offline-snap-setup" | tee -a "$LOG"
     echo | tee -a "$LOG"
-    pkexec "$BASE"/wasta-offline-snap-setup "$WO_LOC"
+    "$BASE"/wasta-offline-snap-setup "$WO_LOC"
 fi
 
 echo | tee -a "$LOG"
