@@ -646,10 +646,14 @@ fi
 #   least be some mention of it in the wasta-offline-setup log.
 if [[ -x /usr/bin/snap ]]; then
     echo | tee -a "$LOG"
+    echo "-------------------------------------------------------" | tee -a "$LOG"
+    echo "*** Copying snaps and assertions                       " | tee -a "$LOG"
+    echo "-------------------------------------------------------" | tee -a "$LOG"
+    echo | tee -a "$LOG"
     echo $(date +%T) $HOST "wasta-offline-snap-setup started." | tee -a "$LOG"
     echo "Its log file can be found in $WO_LOC/log/wasta-offline-snap-setup" | tee -a "$LOG"
     echo | tee -a "$LOG"
-    sudo "$BASE"/wasta-offline-snap-setup "$WO_LOC"
+    pkexec "$BASE"/wasta-offline-snap-setup "$WO_LOC"
 fi
 
 echo | tee -a "$LOG"

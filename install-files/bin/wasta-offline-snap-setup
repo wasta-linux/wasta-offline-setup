@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # TODO:
-#   - Use PolicyKit instead of sudo for authentication.
+#   - Move snap copy commands into parent shell and move zenity progress to subshell.
+#       This would allow pre-elevation to root using pkexec.
 #   - Add a post-transfer file integrity check for $SNAPS_DIR?
 
 # =============================================================================
@@ -18,12 +19,11 @@
 
 # Require root privileges.
 # -----------------------------------------------------------------------------
-if [ $(id -u) -ne 0 ]; then
-    # Filling in for now for more elaborate handling.
-    echo "This script needs to be run with root privileges. Exiting."
-    exit 1
-fi
-
+#if [ $(id -u) -ne 0 ]; then
+#    # Filling in for now for more elaborate handling.
+#    echo "This script needs to be run with root privileges. Exiting."
+#    exit 1
+#fi
 
 # Set global variables
 # -----------------------------------------------------------------------------
@@ -78,6 +78,7 @@ SNAPS_DIR=$(realpath "$1" 2>/dev/null) # realpath removes trailing '/'s
 # System info
 LOG_DATE=$(date +%F-%H-%M)
 HOST=$(uname -n)
+BASE=$(realpath $(dirname $0))
 
 # Zenity defaults
 ZTITLE="wasta [Offline] Snap Setup"
@@ -86,13 +87,18 @@ ZWIDTH=500
 ZICON=/usr/share/icons/hicolor/256x256/apps/wasta-offline.png
 ZDEFAULTS=(--title="$ZTITLE" --height="$ZHEIGHT" --width="$ZWIDTH" --window-icon="$ZICON")
 
-# Determine if $SUDO_USER has write access to passed $SNAPS_DIR.
+# Elevate root privileges for later use.
+# TODO: Doesn't seem to work. Probably because later pkexec is in a subshell.
+#pkexec "$BASE"/wasta-root "init"
+
+# Determine if $USER has write access to passed $SNAPS_DIR.
 #   $no_write_access will be empty if the user does have write permission.
-no_write_access=$(sudo -u $SUDO_USER touch "$SNAPS_DIR"/.test-write 2>&1)
+no_write_access=$(touch "$SNAPS_DIR"/.test-write 2>&1)
 # Exit with error if invalid $SNAPS_DIR passed as argument (assumed non-interactive).
 if [[ $1 ]] && [[ $no_write_access ]]; then
     # Invalid $SNAPS_DIR passed as argument.
-    echo "Files cannot be created in this folder. Exiting."
+    echo "Files cannot be created in:"
+    echo -e "\t$SNAPS_DIR\nExiting."
     exit 1
 fi
 
@@ -117,11 +123,11 @@ while [[ $no_write_access ]]; do
 
     text="Searching system for wasta-offline folder...\n\n\n\n\n"
     prog_opts="--progress --pulsate --auto-close --auto-kill --no-cancel"
-    # Using $SUDO_USER to try to limit the scope of the 'find' command below.
+    # Using $USER to try to limit the scope of the 'find' command below.
     #   Convoluted yet functional zenity subprocess inspired by this article:
     #   http://wiki.bash-hackers.org/zenity_--progress
     wo_list=$(
-        sudo -u $SUDO_USER find /media /mnt /home/$SUDO_USER \
+        find /media /mnt /home/"$USER" -not -path '*/.*' \
             -name 'wasta-offline' -type d 2>/dev/null | tee >(
                 zenity ${prog_opts[@]} --text="$text" "${ZDEFAULTS[@]}" \
                     2>/dev/null
@@ -129,7 +135,7 @@ while [[ $no_write_access ]]; do
         )
     if [[ -z $wo_list ]]; then
         # No wasta-offline folder found. Start in user's $HOME.
-        START_FOLDER=/home/"$SUDO_USER"/
+        START_FOLDER=/home/"$USER"/
     else
         for d in ${wo_list[@]}; do
             # Look for 'local-cache' subfolder of 'wasta-offline' folder.
@@ -144,7 +150,7 @@ while [[ $no_write_access ]]; do
                 START_FOLDER="$d"
             else
                 # No "true" wasta-offline folder found.
-                START_FOLDER=/home/"$SUDO_USER"/
+                START_FOLDER=/home/"$USER"/
             fi
         done
     fi
@@ -162,7 +168,7 @@ while [[ $no_write_access ]]; do
         exit 1
     fi
     # Test again for write access on newly-chosen $SNAPS_DIR.
-    no_write_access=$(sudo -u $SUDO_USER touch "$SNAPS_DIR"/.test-write 2>&1)
+    no_write_access=$(touch "$SNAPS_DIR"/.test-write 2>&1)
 done
 
 
@@ -184,7 +190,7 @@ if [[ $SNAPS_DIR =~ ^.*wasta-offline$ ]]; then
     mkdir --mode=777 --parents "$SNAPS_DIR"
 fi
 
-# $SNAPS_DIR now successfully set with $SUDO_USER having non-sudo write access.
+# $SNAPS_DIR now successfully set with $USER having non-sudo write access.
 MSG+="wasta-offline snaps location:\n\t$SNAPS_DIR\n"
 
 # snapd API variables
@@ -264,7 +270,7 @@ script_exit() {
     for f in ${files_in_dest[@]}; do
         if [[ $f =~ .*\.snap$ ]]; then
             if [[ ! -f ${f//.snap}.assert ]]; then
-                rm $f
+                rm $f # TODO: might need pkexec here
             fi
         fi
     done
@@ -454,16 +460,16 @@ echo "-------------------------------------------------------" >> "$LOG"
 tmp_copy=$(mktemp "$TEMPLATE" --tmpdir)
 bytes_dest_initial=$(($(du -s "$SNAPS_DIR" | cut -f1) * 1024))
 bytes_copied=0
+
 (
 # Copy each snap only if there is enough room on SNAPS_DIR disk.
 for snap in ${!snaps_to_copy[@]}; do
     data="${snaps_to_copy[$snap]}"
-    rem3="${data#* }"
-    rem2="${rem3#* }"
+    rem="${data#* }"
 
     rev="${data%% *}"
-    size="${rem3%% *}"
-    state="${rem2% *}"
+    size="${rem%% *}"
+    state="${rem#* }"
     
     # Get size of available space (in B) on SNAPS_DIR disk.
     avail=$(df -B1 --output=avail "$SNAPS_DIR" | tail -n1)
@@ -472,14 +478,26 @@ for snap in ${!snaps_to_copy[@]}; do
         echo -e "0\t$snap\t$rev" >> "$tmp_copy"
         snap_rev="${snap}_${rev}"
 
-        # Source folders for installed snaps.
+        # Set sources and copy snap and assert files to $SNAPS_DIR.
+        #   Note: Progress may seem disjointed because files on FAT32 disks are
+        #   reported to be written well before they actually are.
+        echo -e "\t$snap_rev.snap and $snap_rev.assert" >> "$LOG"
+        # Copy installed snaps.
         if [[ $state == 'I' ]]; then
             src_snaps="$SNAPS"
             src_asserts="$tmp_asserts_dir"
-        # Source folders for seeded snaps.
+            # Need root privileges to copy snap, hence 'pkexec'.
+            pkexec $BASE/wasta-root "cp" "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/            
+            chmod 777 "$SNAPS_DIR"/"$snap_rev.snap"
+            cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
+
+        # Copy seeded snaps.
         elif [[ $state == 'S' ]]; then
             src_snaps="$SEEDS"/snaps
             src_asserts="$SEEDS"/assertions
+            cp "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/
+            cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
+
         else
             # Not really possible.
             echo "Snap source location not known. Exiting."  | tee -a "$LOG"
@@ -488,13 +506,13 @@ for snap in ${!snaps_to_copy[@]}; do
             exit 1
         fi
 
+        ### TODO: This block was used when script was run with 'sudo'. Keeping for now. ###
         # Copy snap and assert files to $SNAPS_DIR.
         #   Note: Progress may seem disjointed because files on FAT32 disks are
         #   reported to be written well before they actually are.
-        echo -e "\t$snap_rev.snap and $snap_rev.assert" >> "$LOG"
-        cp "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/
-        cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
-        chmod 777 "$SNAPS_DIR"/"$snap_rev"*
+        #cp "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/
+        #cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
+        #chmod 777 "$SNAPS_DIR"/"$snap_rev"*
     else
         disk=$(df "$SNAPS_DIR" | tail -n1 | tr -s ' ' | cut -d ' ' -f1)
         text="Not enough room left on device $disk.\n\n \
