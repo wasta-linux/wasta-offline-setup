@@ -1,8 +1,6 @@
 #!/bin/bash
 
 # TODO:
-#   - Move snap copy commands into parent shell and move zenity progress to subshell.
-#       This would allow pre-elevation to root using pkexec.
 #   - Add a post-transfer file integrity check for $SNAPS_DIR?
 
 # =============================================================================
@@ -13,7 +11,7 @@
 # 2. Creates a dictionary of snaps and revisions in SNAPS_DIR
 # 3. Determines which snaps should be copied.
 # 4. Creates assert files for all installed snaps that should be copied.
-# 5. Copies each snap and its assert to SNAPS_DIR.
+# 5. Copies each snap and its assertion to SNAPS_DIR.
 # 6. Removes extra snaps from SNAPS_DIR.
 # =============================================================================
 
@@ -75,6 +73,9 @@ fi
 # Clean up argument if passed.
 SNAPS_DIR=$(realpath "$1" 2>/dev/null) # realpath removes trailing '/'s
 
+# Root functions shortcut.
+ROOT=wasta-offline-snap-setup-root
+
 # System info
 LOG_DATE=$(date +%F-%H-%M)
 HOST=$(uname -n)
@@ -88,8 +89,11 @@ ZICON=/usr/share/icons/hicolor/256x256/apps/wasta-offline.png
 ZDEFAULTS=(--title="$ZTITLE" --height="$ZHEIGHT" --width="$ZWIDTH" --window-icon="$ZICON")
 
 # Elevate root privileges for later use.
-# TODO: Doesn't seem to work. Probably because later pkexec is in a subshell.
-#pkexec "$BASE"/wasta-root "init"
+# TODO: Doesn't work, maybe because next use of pkexec is in a command block.
+#pkexec "$BASE"/"$ROOT" "init"
+#if [[ $? -gt 0 ]]; then
+#    exit $?
+#fi
 
 # Determine if $USER has write access to passed $SNAPS_DIR.
 #   $no_write_access will be empty if the user does have write permission.
@@ -270,13 +274,28 @@ script_exit() {
     for f in ${files_in_dest[@]}; do
         if [[ $f =~ .*\.snap$ ]]; then
             if [[ ! -f ${f//.snap}.assert ]]; then
-                rm $f # TODO: might need pkexec here
+                echo -e "\nCleaning up orphaned snaps in $SNAPS_DIR..." >> $LOG
+                if [[ -w $f ]]; then
+                    rm "$f"
+                else
+                    # Only use pkexec if necessary.
+                    pkexec "$BASE"/"$ROOT" "rm" "$f"
+                fi
+                echo "$f removed from $SNAPS_DIR" >> "$LOG"
+            fi
+        elif [[ $f =~ .*\.assert$ ]]; then
+            if [[ ! -f ${f//.assert}.snap ]]; then
+                echo -e "\nCleaning up orphaned assertions in $SNAPS_DIR..." >> $LOG
+                rm "$f"
+                echo "$f removed from $SNAPS_DIR" >> "$LOG"
             fi
         fi
     done
 
     # TODO: Perform file integrity check for snaps in $SNAPS_DIR?
-    
+
+    echo >> "$LOG"
+    echo "Done." | tee -a "$LOG"
     exit "$ec"
     }
 
@@ -456,94 +475,98 @@ echo -e "\nTotal bytes to copy: $total_bytes_to_copy bytes\n" >> "$LOG"
 echo "Copying snaps and assert files..." | tee -a "$LOG"
 echo "-------------------------------------------------------" >> "$LOG"
 
-# Show progress dialog based on bytes copied.
+# Show progress dialog based on sectors copied to destination disk.
 tmp_copy=$(mktemp "$TEMPLATE" --tmpdir)
-bytes_dest_initial=$(($(du -s "$SNAPS_DIR" | cut -f1) * 1024))
-bytes_copied=0
+#   Using du shows bytes to be copied when they're really still in memory.
+#   Disk's stat file is more accurate but reads entire disk rather than destination folder.
+#bytes_dest_initial=$(( $(du -s "$SNAPS_DIR" | cut -f1) * 1024))
+device=$(df "$SNAPS_DIR" | tail -n1 | sed -r 's|^/.*/([a-z]*)[0-9]*\s.*|\1|')
+sectors_written_initial=$(cat "/sys/block/$device/stat" | tr -s ' ' | cut -d ' ' -f7)
 
-(
-# Copy each snap only if there is enough room on SNAPS_DIR disk.
-for snap in ${!snaps_to_copy[@]}; do
-    data="${snaps_to_copy[$snap]}"
-    rem="${data#* }"
+# Loop over $snaps to copy, sync at the end.
+{
+    # Copy each snap only if there is enough room on SNAPS_DIR disk.
+    for snap in ${!snaps_to_copy[@]}; do
+        data="${snaps_to_copy[$snap]}"
+        rem="${data#* }"
 
-    rev="${data%% *}"
-    size="${rem%% *}"
-    state="${rem#* }"
-    
-    # Get size of available space (in B) on SNAPS_DIR disk.
-    avail=$(df -B1 --output=avail "$SNAPS_DIR" | tail -n1)
-    # Only copy snap and assert if there's enough room.
-    if [[ $avail -gt $size ]]; then
-        echo -e "0\t$snap\t$rev" >> "$tmp_copy"
-        snap_rev="${snap}_${rev}"
+        rev="${data%% *}"
+        size="${rem%% *}"
+        state="${rem#* }"
+        
+        # Get size of available space (in B) on SNAPS_DIR disk.
+        avail=$(df -B1 --output=avail "$SNAPS_DIR" | tail -n1)
+        # Only copy snap and assert if there's enough room.
+        if [[ $avail -gt $size ]]; then
+            # Send status info to $tmp_copy.
+            echo -e "0\tCopying $snap" >> "$tmp_copy"
 
-        # Set sources and copy snap and assert files to $SNAPS_DIR.
-        #   Note: Progress may seem disjointed because files on FAT32 disks are
-        #   reported to be written well before they actually are.
-        echo -e "\t$snap_rev.snap and $snap_rev.assert" >> "$LOG"
-        # Copy installed snaps.
-        if [[ $state == 'I' ]]; then
-            src_snaps="$SNAPS"
-            src_asserts="$tmp_asserts_dir"
-            # Need root privileges to copy snap, hence 'pkexec'.
-            pkexec $BASE/wasta-root "cp" "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/            
-            chmod 777 "$SNAPS_DIR"/"$snap_rev.snap"
-            cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
+            snap_rev="${snap}_${rev}"
+            echo -e "\t$snap_rev.snap and $snap_rev.assert" >> "$LOG"
 
-        # Copy seeded snaps.
-        elif [[ $state == 'S' ]]; then
-            src_snaps="$SEEDS"/snaps
-            src_asserts="$SEEDS"/assertions
-            cp "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/
-            cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
+            # Copy installed snaps.
+            if [[ $state == 'I' ]]; then
+                src_snaps="$SNAPS"
+                src_asserts="$tmp_asserts_dir"
+                # Need root privileges to copy snap, hence 'pkexec'.
+                pkexec $BASE/"$ROOT" "cp" "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/            
+                pkexec $BASE/"$ROOT" "chmod" "777" "$SNAPS_DIR"/"$snap_rev.snap"
+                cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
+            # Copy seeded snaps.
+            elif [[ $state == 'S' ]]; then
+                src_snaps="$SEEDS"/snaps
+                src_asserts="$SEEDS"/assertions
+                cp "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/
+                cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
 
+            else
+                # Not really possible.
+                echo "Snap source location not known. Exiting."  | tee -a "$LOG"
+                echo "1" >> "$tmp_copy"
+                script_exit 1
+            fi
         else
-            # Not really possible.
-            echo "Snap source location not known. Exiting."  | tee -a "$LOG"
+            disk=$(df "$SNAPS_DIR" | tail -n1 | tr -s ' ' | cut -d ' ' -f1)
+            text="Not enough room left on device $disk.\n\n\
+Please clear up some space and try again or use a different disk."
+            echo "$text" | tee -a "$LOG"
+            if [[ $AUTO -eq 0 ]]; then
+                zenity --error "${ZDEFAULTS[@]}" --text="$text" 2>/dev/null
+            fi
             echo "1" >> "$tmp_copy"
             script_exit 1
-            exit 1
         fi
-
-        ### TODO: This block was used when script was run with 'sudo'. Keeping for now. ###
-        # Copy snap and assert files to $SNAPS_DIR.
-        #   Note: Progress may seem disjointed because files on FAT32 disks are
-        #   reported to be written well before they actually are.
-        #cp "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/
-        #cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
-        #chmod 777 "$SNAPS_DIR"/"$snap_rev"*
-    else
-        disk=$(df "$SNAPS_DIR" | tail -n1 | tr -s ' ' | cut -d ' ' -f1)
-        text="Not enough room left on device $disk.\n\n \
-Please clear up some space and try again or use a different disk."
-        echo "$text" | tee -a "$LOG"
-        if [[ $AUTO -eq 0 ]]; then
-            zenity --error "${ZDEFAULTS[@]}" --text="$text" 2>/dev/null
-        fi
-        echo "1" >> "$tmp_copy"
-        script_exit 1
-        exit 1
-    fi
-done
-) &
+        echo -e "0\tWriting files to disk" >> "$tmp_copy"
+    done
+    sync 2>&1 >> "$LOG"
+    echo >> "$LOG"
+} &
 COPY_PID=$!
 
 # Read tempfile to get data for Zenity progress dialog while COPY_PID exists.
 text="Copying snaps to:\n\n\
 \t$SNAPS_DIR\n\n\
-This may take some time, especially on a USB 2.0 device.\n\n \
-Copying"
+This may take some time, especially on a USB 2.0 device.\n\n\n"
 
-prog_opts="--progress --auto-close"
+progress=0
 while [[ $(ps --no-headers -p "$COPY_PID") ]]; do
-    bytes_dest_current=$(($(du -s "$SNAPS_DIR" | cut -f1) * 1024))
-    bytes_copied=$(($bytes_dest_current - $bytes_dest_initial))
-    progress=$(($bytes_copied * 100 / $total_bytes_to_copy - 1))
+    #bytes_dest_current=$(($(du -s "$SNAPS_DIR" | cut -f1) * 1024))
+    #bytes_copied=$(( $bytes_dest_current - $bytes_dest_initial ))
+    sectors_written=$(cat "/sys/block/$device/stat" | tr -s ' ' | cut -d ' ' -f7)
+    sectors_copied=$(( $sectors_written - $sectors_written_initial ))
+    # Multiplying $sectors_copied by 4230 to get total bytes copied.
+    #   This is based solely on observation--I can't logically explain it.
+    #   This factor should be 512 according to documentation for /sys/block/<dev>/stat:
+    #   https://www.kernel.org/doc/Documentation/block/stat.txt,
+    #   but my observations say otherwise.
+    if [[ $total_bytes_to_copy -gt 0 ]]; then
+        progress=$(( $sectors_copied * ( 512 + 3718 ) * 100 / $total_bytes_to_copy ))
+    else
+        progress="100"
+    fi
 
     ec=$(tail -n1 "$tmp_copy" | cut -f1)
     snap=$(tail -n1 "$tmp_copy" | cut -f2)
-    rev=$(tail -n1 "$tmp_copy" | cut -f3)
 
     if [[ $ec -gt 0 ]]; then
         script_exit "$ec" "$COPY_PID"
@@ -552,35 +575,16 @@ while [[ $(ps --no-headers -p "$COPY_PID") ]]; do
     echo "$progress"
     echo "#$text $snap..."
     sleep 0.2
-done | zenity ${prog_opts[@]} "${ZDEFAULTS[@]}" 2>/dev/null
+done | zenity --progress --auto-close "${ZDEFAULTS[@]}" 2>/dev/null
 ec=$?
 if [[ $ec -gt 0 ]]; then
     script_exit "$ec" "$COPY_PID"
 fi
-# Sync writes to disk before continuing.
-echo "Writing cached files to destination..." | tee -a "$LOG"
-sync 2>&1 >> "$LOG" &
-SYNC_PID=$!
-
-# Show sync progress.
-text="Waiting for the disk to finish saving the files...\n\n\n\
-This may take some time, especially on a USB 2.0 device.\n"
-prog_opts="--progress --pulsate --auto-close --auto-kill --no-cancel"
-(
-ct=0
-while [[ $(ps --no-headers -p $SYNC_PID) ]]; do
-    echo "#$text\nElapsed Time: $ct seconds"
-    sleep 1
-    ((ct++))
-done
-
-echo -e "\nInfo: flushing file buffers to disk (sync) took approximately $ct seconds.\n" >> "$LOG"
-) | zenity ${prog_opts[@]} "${ZDEFAULTS[@]}" 2>/dev/null
 
 
 # 6. Delete old revisions, keeping only the $MAX most recent ones.
 # ---------------------------------------------------------------------------
-# Get snaps in offline directory.
+# List snaps in offline directory.
 echo "Listing snaps in offline folder..." | tee -a "$LOG"
 echo "-------------------------------------------------------" >> "$LOG"
 
@@ -604,6 +608,7 @@ done
 
 # Sort revisions listed for each snap. Remove all but $MAX higest revisions.
 echo "Removing old snap versions..." | tee -a "$LOG"
+echo "-------------------------------------------------------" >> "$LOG"
 # Create dictionary of snaps and revisions to be removed.
 declare -A snaps_removed
 for snap in ${!snaps_offline[@]}; do
@@ -618,7 +623,7 @@ for snap in ${!snaps_offline[@]}; do
             # Don't remove snap revision.
             ((count += 1))
         else
-            # Select snap revision and assert file for removal.
+            # Select snap revision for removal.
             snaps_removed["$snap"]+="$rev "
         fi
     done
@@ -632,7 +637,5 @@ for snap in ${!snaps_removed[@]}; do
         rm -f "$SNAPS_DIR"/"${snap}_${rev}.assert"
     done
 done
-echo >> "$LOG"
-echo "Done." | tee -a "$LOG"
 
 script_exit 0
