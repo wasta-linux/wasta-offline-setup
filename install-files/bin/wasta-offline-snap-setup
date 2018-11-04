@@ -127,8 +127,7 @@ while [[ $no_write_access ]]; do
 
     text="Searching system for wasta-offline folder...\n\n\n\n\n"
     prog_opts="--progress --pulsate --auto-close --auto-kill --no-cancel"
-    # Using $USER to try to limit the scope of the 'find' command below.
-    #   Convoluted yet functional zenity subprocess inspired by this article:
+    # Convoluted yet functional zenity subprocess inspired by this article:
     #   http://wiki.bash-hackers.org/zenity_--progress
     wo_list=$(
         find /media /mnt /home/"$USER" -not -path '*/.*' \
