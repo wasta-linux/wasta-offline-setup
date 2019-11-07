@@ -31,7 +31,7 @@ HELP_TEXT="$USAGE_TEXT
 This app copies local snaps and assert files to a given destination for
 installation on other systems. If no options or args are passed, the
 destination will be requested interactively.
-    
+
     -h              Show this help text.
     -k [number]     Choose how many snap revisions to keep. Default is 2.
     /path/to/dest   Directory for storing offline snaps.
@@ -74,7 +74,7 @@ fi
 SNAPS_DIR=$(realpath "$1" 2>/dev/null) # realpath removes trailing '/'s
 
 # Root functions shortcut.
-ROOT=wasta-offline-snap-setup-root
+AS_ROOT=/usr/bin/wasta-offline-snap-setup-root
 
 # System info
 LOG_DATE=$(date +%F-%H-%M)
@@ -87,13 +87,6 @@ ZHEIGHT=200
 ZWIDTH=500
 ZICON=/usr/share/icons/hicolor/256x256/apps/wasta-offline.png
 ZDEFAULTS=(--title="$ZTITLE" --height="$ZHEIGHT" --width="$ZWIDTH" --window-icon="$ZICON")
-
-# Elevate root privileges for later use.
-# TODO: Doesn't work, maybe because next use of pkexec is in a command block.
-#pkexec "$BASE"/"$ROOT" "init"
-#if [[ $? -gt 0 ]]; then
-#    exit $?
-#fi
 
 # Determine if $USER has write access to passed $SNAPS_DIR.
 #   $no_write_access will be empty if the user does have write permission.
@@ -160,7 +153,7 @@ while [[ $no_write_access ]]; do
 
     # Store $START_FOLDER for later writing to $LOG.
     MSG+="\nstart folder:\n\t$START_FOLDER\n\n"
-  
+
     SNAPS_DIR=$(
         zenity --file-selection --directory --filename="$START_FOLDER" \
         "${ZDEFAULTS[@]}" \
@@ -259,15 +252,15 @@ create_assert_file() {
 script_exit() {
     ec="$1"
     pid_to_kill="$2"
-    
+
     # Kill the passed process if still running.
     if [[ $pid_to_kill ]] && [[ $(ps --no-headers -p "$pid_to_kill") ]]; then
         kill "$pid_to_kill"
     fi
-    
+
     # Remove temp files.
     rm -r /tmp/${TEMPLATE%.*}*
-   
+
     # Remove snaps in $SNAPS_DIR that don't have asserts (due to incomplete copy).
     files_in_dest=$(find "$SNAPS_DIR" -type f)
     for f in ${files_in_dest[@]}; do
@@ -278,7 +271,7 @@ script_exit() {
                     rm "$f"
                 else
                     # Only use pkexec if necessary.
-                    pkexec "$BASE"/"$ROOT" "rm" "$f"
+                    pkexec "$AS_ROOT" "rm" "$f"
                 fi
                 echo "$f removed from $SNAPS_DIR" >> "$LOG"
             fi
@@ -429,7 +422,7 @@ while [[ $i -lt $snaps_count ]]; do
     # Strip double quotes around snap ids.
     snap_id="${snap_id#\"}" #}" # the last chars are to fix syntax highlighting in gedit
     snap_id="${snap_id%\"}" #}" # ditto
-    
+
     # Add snap and id to dictionary.
     snap_ids["$snap"]="$snap_id"
     ((i++))
@@ -444,7 +437,7 @@ for snap in ${!snaps_to_copy[@]}; do
     data="${snaps_to_copy[$snap]}"
     rem3="${data#* }"
     rem2="${rem3#* }"
-    
+
     rev="${data%% *}"
     state="${rem2% *}"
     snap_id="${snap_ids[$snap]}"
@@ -492,7 +485,7 @@ sectors_written_initial=$(cat "/sys/block/$device/stat" | tr -s ' ' | cut -d ' '
         rev="${data%% *}"
         size="${rem%% *}"
         state="${rem#* }"
-        
+
         # Get size of available space (in B) on SNAPS_DIR disk.
         avail=$(df -B1 --output=avail "$SNAPS_DIR" | tail -n1)
         # Only copy snap and assert if there's enough room.
@@ -508,8 +501,8 @@ sectors_written_initial=$(cat "/sys/block/$device/stat" | tr -s ' ' | cut -d ' '
                 src_snaps="$SNAPS"
                 src_asserts="$tmp_asserts_dir"
                 # Need root privileges to copy snap, hence 'pkexec'.
-                pkexec $BASE/"$ROOT" "cp" "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/            
-                pkexec $BASE/"$ROOT" "chmod" "777" "$SNAPS_DIR"/"$snap_rev.snap"
+                pkexec "$AS_ROOT" "cp" "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/
+                pkexec "$AS_ROOT" "chmod" "777" "$SNAPS_DIR"/"$snap_rev.snap"
                 cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
             # Copy seeded snaps.
             elif [[ $state == 'S' ]]; then
@@ -570,7 +563,7 @@ while [[ $(ps --no-headers -p "$COPY_PID") ]]; do
     if [[ $ec -gt 0 ]]; then
         script_exit "$ec" "$COPY_PID"
     fi
-    
+
     echo "$progress"
     echo "#$text $snap..."
     sleep 0.2
