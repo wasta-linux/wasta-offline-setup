@@ -540,6 +540,8 @@ text="Copying snaps to:\n\n\
 \t$SNAPS_DIR\n\n\
 This may take some time, especially on a USB 2.0 device.\n\n\n"
 
+# Get reported block size from destination for calculating progress.
+block_size=$(stat -c '%o' "$SNAPS_DIR")
 progress=0
 while [[ $(ps --no-headers -p "$COPY_PID") ]]; do
     #bytes_dest_current=$(($(du -s "$SNAPS_DIR" | cut -f1) * 1024))
@@ -552,7 +554,7 @@ while [[ $(ps --no-headers -p "$COPY_PID") ]]; do
     #   https://www.kernel.org/doc/Documentation/block/stat.txt,
     #   but my observations say otherwise.
     if [[ $total_bytes_to_copy -gt 0 ]]; then
-        progress=$(( $sectors_copied * ( 512 + 3718 ) * 100 / $total_bytes_to_copy ))
+        progress=$(( $sectors_copied * $block_size * 100 / $total_bytes_to_copy ))
     else
         progress="100"
     fi
