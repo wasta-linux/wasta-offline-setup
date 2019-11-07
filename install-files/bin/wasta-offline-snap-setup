@@ -329,7 +329,7 @@ for i in ${seeded_list[@]}; do
 done
 
 # Get list of snaps currently installed.
-installed_list=$(snap list | grep -v Name)
+installed_list=$(snap list | tail -n +2)
 echo -e "Installed snaps:\n$installed_list\n" >> "$LOG"
 
 # Add these snap names to $snaps_local dictionary. Installed snaps will replace
