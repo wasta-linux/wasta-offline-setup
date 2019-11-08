@@ -123,7 +123,7 @@ while [[ $no_write_access ]]; do
     # Convoluted yet functional zenity subprocess inspired by this article:
     #   http://wiki.bash-hackers.org/zenity_--progress
     wo_list=$(
-        find /media /mnt /home/"$USER" -not -path '*/.*' \
+        find /media /mnt /home/"$USER" -not -path '*/.*' -maxdepth 3 \
             -name 'wasta-offline' -type d 2>/dev/null | tee >(
                 zenity ${prog_opts[@]} --text="$text" "${ZDEFAULTS[@]}" \
                     2>/dev/null
