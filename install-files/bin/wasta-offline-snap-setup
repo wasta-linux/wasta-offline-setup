@@ -404,28 +404,14 @@ done
 echo "Creating assert files for installed snaps..." | tee -a "$LOG"
 echo "-------------------------------------------------------" >> "$LOG"
 
-# Create dictionary of snaps and snap-ids from SNAPD_API.
-snaps_addr=v2/snaps
-snaps_count=$(snap list | grep -vE '^Name\s*Version.*' | grep -v disabled | wc -l)
-json=$(curl --silent --unix-socket "$SOCKET" "$SNAPD_API"/"$snaps_addr")
-names=($(echo "$json" | jq ".result[].name"))
-ids=($(echo "$json" | jq ".result[].id"))
+# Create dictionary of snaps and snap-ids.
 declare -A snap_ids
-i=0
-while [[ $i -lt $snaps_count ]]; do
-    snap="${names[$i]}"
-    # Strip double quotes around snap names.
-    snap="${snap#\"}" #}" # the last chars are to fix syntax highlighting in gedit
-    snap="${snap%\"}" #}" # ditto
-
-    snap_id="${ids[$i]}"
-    # Strip double quotes around snap ids.
-    snap_id="${snap_id#\"}" #}" # the last chars are to fix syntax highlighting in gedit
-    snap_id="${snap_id%\"}" #}" # ditto
-
-    # Add snap and id to dictionary.
+names=$(snap list | tail -n +2 | tr -s ' ' | cut -d' ' -f1)
+# The "$ snap info" command is slower than querying the local API, but this
+#   avoids using curl and jq, as well as having to count snaps.
+for snap in $names; do
+    snap_id=$(snap info $snap | grep 'snap-id:' | tr -s ' ' | cut -d' ' -f2)
     snap_ids["$snap"]="$snap_id"
-    ((i++))
 done
 
 # Send assert creation to the background & log output to tempfile.
