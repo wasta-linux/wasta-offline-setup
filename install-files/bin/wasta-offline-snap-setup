@@ -189,11 +189,6 @@ fi
 # $SNAPS_DIR now successfully set with $USER having non-sudo write access.
 MSG+="wasta-offline snaps location:\n\t$SNAPS_DIR\n"
 
-# snapd API variables
-#   docs: https://docs.ubuntu.com/core/en/reference/rest
-SNAPD_API=http://localhost
-SOCKET=/run/snapd.socket
-
 # snapd directories
 SNAPD=/var/lib/snapd
 SEEDS="$SNAPD"/seed
