@@ -1,8 +1,16 @@
-wasta-offline-setup (1.1.9.8) bionic; urgency=medium
+<<<<<<< HEAD
+wasta-offline-setup (2.1.1) bionic; urgency=medium
 
   * recognize Linux Mint Tessa/Tina/Tricia
 
  -- Justin Luth <jluth@mail.com>  Thu, 30 Oct 2019 19:41:25 +0300
+=======
+wasta-offline-setup (2.1) bionic; urgency=medium
+
+  * include support for snap packages
+
+ -- Nate Marti <nate_marti@sil.org>  Sun, 10 Nov 2019 13:40:56 +0100
+>>>>>>> b9099f8... advanced to version 2.1 and changed series to bionic
 
 wasta-offline-setup (1.1.9.7) bionic; urgency=medium
 
