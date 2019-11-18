@@ -65,8 +65,8 @@ fi
 # Clean up argument if passed.
 SNAPS_DIR=$(realpath "$1" 2>/dev/null) # realpath removes trailing '/'s
 
-# Root functions shortcut.
-AS_ROOT=/usr/bin/wasta-offline-snap-setup-root
+# Retrieve username who launched pkexec.
+PKU=$(cat /etc/passwd | grep $PKEXEC_UID | cut -d':' -f1)
 
 # System info
 LOG_DATE=$(date +%F-%H-%M)
@@ -78,11 +78,17 @@ ZTITLE="wasta [Offline] Snap Setup"
 ZHEIGHT=200
 ZWIDTH=500
 ZICON=/usr/share/icons/hicolor/256x256/apps/wasta-offline.png
-ZDEFAULTS=(--title="$ZTITLE" --height="$ZHEIGHT" --width="$ZWIDTH" --window-icon="$ZICON")
+ZDEFAULTS=(
+    --title="$ZTITLE"
+    --height="$ZHEIGHT"
+    --width="$ZWIDTH"
+    --window-icon="$ZICON"
+    --display=:0.0
+)
 
 # Determine if $USER has write access to passed $SNAPS_DIR.
 #   $no_write_access will be empty if the user does have write permission.
-no_write_access=$(touch "$SNAPS_DIR"/.test-write 2>&1)
+no_write_access=$(sudo --user="$PKU" touch "$SNAPS_DIR"/.test-write 2>&1)
 # Exit with error if invalid $SNAPS_DIR passed as argument (assumed non-interactive).
 if [[ $1 ]] && [[ $no_write_access ]]; then
     # Invalid $SNAPS_DIR passed as argument.
@@ -96,7 +102,7 @@ count=0
 while [[ $no_write_access ]]; do
     # Avoid initial prompt on subsequent loops.
     if [[ $ct -eq 0 ]]; then
-        zenity --question --no-wrap "${ZDEFAULTS[@]}" \
+        sudo --user="$PKU" zenity --question --no-wrap "${ZDEFAULTS[@]}" \
             --text="<b>Use wasta [Offline] Snap Setup to add your computer's
     <u>local snap cache</u> to wasta [Offline]?</b>\n
 
@@ -115,15 +121,15 @@ while [[ $no_write_access ]]; do
     # Convoluted yet functional zenity subprocess inspired by this article:
     #   http://wiki.bash-hackers.org/zenity_--progress
     wo_list=$(
-        find /media /mnt /home/"$USER" -maxdepth 3 -not -path '*/.*' \
+        find /media /mnt /home/"$PKU" -maxdepth 3 -not -path '*/.*' \
             -name 'wasta-offline' -type d 2>/dev/null | tee >(
-                zenity ${prog_opts[@]} --text="$text" "${ZDEFAULTS[@]}" \
-                    2>/dev/null
+                sudo --user="$PKU" zenity ${prog_opts[@]} --text="$text" \
+                    "${ZDEFAULTS[@]}" 2>/dev/null
                 )
         )
     if [[ -z $wo_list ]]; then
         # No wasta-offline folder found. Start in user's $HOME.
-        START_FOLDER=/home/"$USER"/
+        START_FOLDER=/home/"$PKU"/
     else
         for d in ${wo_list[@]}; do
             # Look for 'local-cache' subfolder of 'wasta-offline' folder.
@@ -138,7 +144,7 @@ while [[ $no_write_access ]]; do
                 START_FOLDER="$d"
             else
                 # No "true" wasta-offline folder found.
-                START_FOLDER=/home/"$USER"/
+                START_FOLDER=/home/"$PKU"/
             fi
         done
     fi
@@ -147,8 +153,8 @@ while [[ $no_write_access ]]; do
     MSG+="\nstart folder:\n\t$START_FOLDER\n\n"
 
     SNAPS_DIR=$(
-        zenity --file-selection --directory --filename="$START_FOLDER" \
-        "${ZDEFAULTS[@]}" \
+        sudo --user="$PKU" zenity --file-selection --directory \
+        --filename="$START_FOLDER" "${ZDEFAULTS[@]}" \
         --title="Select or Create a destination folder" 2>/dev/null
         )
     if [[ $? -ne 0 ]]; then
@@ -156,7 +162,7 @@ while [[ $no_write_access ]]; do
         exit 1
     fi
     # Test again for write access on newly-chosen $SNAPS_DIR.
-    no_write_access=$(touch "$SNAPS_DIR"/.test-write 2>&1)
+    no_write_access=$(sudo --user="$PKU" touch "$SNAPS_DIR"/.test-write 2>&1)
 done
 
 
@@ -168,6 +174,7 @@ rm -f "$SNAPS_DIR"/.test-write
 LOG_DIR="$SNAPS_DIR/log/wasta-offline-snap-setup"
 mkdir --mode=777 --parents $LOG_DIR
 LOG="$LOG_DIR/$LOG_DATE-$HOST.log"
+sudo --user="$PKU" touch "$LOG"
 
 # Need to be able to handle 2 types of $SNAPS_DIRs:
 #   1. "wasta-offline" folder -> Set $SNAPS_DIR as wasta-offline/local-cache/snaps.
@@ -254,12 +261,7 @@ script_exit() {
         if [[ $f =~ .*\.snap$ ]]; then
             if [[ ! -f ${f//.snap}.assert ]]; then
                 echo -e "\nCleaning up orphaned snaps in $SNAPS_DIR..." >> $LOG
-                if [[ -w $f ]]; then
-                    rm "$f"
-                else
-                    # Only use pkexec if necessary.
-                    pkexec rm "$f"
-                fi
+                rm "$f"
                 echo "$f removed from $SNAPS_DIR" >> "$LOG"
             fi
         elif [[ $f =~ .*\.assert$ ]]; then
@@ -477,16 +479,19 @@ sectors_written_initial=$(cat "/sys/block/$device/stat" | tr -s ' ' | cut -d ' '
             if [[ $state == 'I' ]]; then
                 src_snaps="$SNAPS"
                 src_asserts="$tmp_asserts_dir"
-                # Need root privileges to copy snap, hence 'pkexec'.
-                pkexec "$AS_ROOT" "cp" "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/
-                pkexec "$AS_ROOT" "chmod" "777" "$SNAPS_DIR"/"$snap_rev.snap"
+                # Copying as root; need to ensure proper permissions at destination.
+                cp "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/
+                chmod 666 "$SNAPS_DIR"/"$snap_rev.snap"
                 cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
+                chmod 666 "$SNAPS_DIR"/"$snap_rev.assert"
             # Copy seeded snaps.
             elif [[ $state == 'S' ]]; then
                 src_snaps="$SEEDS"/snaps
                 src_asserts="$SEEDS"/assertions
                 cp "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/
+                chmod 666 "$SNAPS_DIR"/"$snap_rev.snap"
                 cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
+                chmod 666 "$SNAPS_DIR"/"$snap_rev.assert"
 
             else
                 # Not really possible.
@@ -500,7 +505,8 @@ sectors_written_initial=$(cat "/sys/block/$device/stat" | tr -s ' ' | cut -d ' '
 Please clear up some space and try again or use a different disk."
             echo "$text" | tee -a "$LOG"
             if [[ $AUTO -eq 0 ]]; then
-                zenity --error "${ZDEFAULTS[@]}" --text="$text" 2>/dev/null
+                sudo --user="$PKU" zenity --error "${ZDEFAULTS[@]}" \
+                    --text="$text" 2>/dev/null
             fi
             echo "1" >> "$tmp_copy"
             script_exit 1
@@ -546,7 +552,7 @@ while [[ $(ps --no-headers -p "$COPY_PID") ]]; do
     echo "$progress"
     echo "#$text $snap..."
     sleep 0.2
-done | zenity --progress --auto-close "${ZDEFAULTS[@]}" 2>/dev/null
+done | sudo --user="$PKU" zenity --progress --auto-close "${ZDEFAULTS[@]}" 2>/dev/null
 ec=$?
 if [[ $ec -gt 0 ]]; then
     script_exit "$ec" "$COPY_PID"
