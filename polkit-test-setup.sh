@@ -14,11 +14,11 @@ BIN=/usr/bin
 POLKIT=/usr/share/polkit-1/actions
 
 bins=(
-    wasta-offline-snap-setup-root
+    wasta-offline-snap-setup
 )
 
 actions=(
-    org.wasta.apps.wasta-offline-snap-setup-root.policy
+    org.wasta.apps.wasta-offline-snap-setup.policy
 )
 
 if [[ ! $1 ]]; then
