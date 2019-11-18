@@ -258,7 +258,7 @@ script_exit() {
                     rm "$f"
                 else
                     # Only use pkexec if necessary.
-                    pkexec "$AS_ROOT" "rm" "$f"
+                    pkexec rm "$f"
                 fi
                 echo "$f removed from $SNAPS_DIR" >> "$LOG"
             fi
@@ -394,10 +394,14 @@ echo "-------------------------------------------------------" >> "$LOG"
 # Create dictionary of snaps and snap-ids.
 declare -A snap_ids
 names=$(snap list | tail -n +2 | tr -s ' ' | cut -d' ' -f1)
-# The "$ snap info" command is slower than querying the local API, but this
-#   avoids using curl and jq, as well as having to count snaps.
+# The "$ snap info" command queries the public snapd server: very slow when making multiple requests.
+#   The local snapd API requires using curl & jq, but it is nearly instantaneous.
+api="http://localhost/v2/snaps/"
+socket="/run/snapd.socket"
 for snap in $names; do
-    snap_id=$(snap info $snap | grep 'snap-id:' | tr -s ' ' | cut -d' ' -f2)
+    #snap_id=$(snap info $snap | grep 'snap-id:' | tr -s ' ' | cut -d' ' -f2)
+    json=$(curl --silent --unix-socket "$socket" "$api/$snap")
+    snap_id=$(echo "$json" | jq '.result.id' | tr -d '"')
     snap_ids["$snap"]="$snap_id"
 done
 
