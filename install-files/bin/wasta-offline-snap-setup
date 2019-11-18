@@ -66,7 +66,17 @@ fi
 SNAPS_DIR=$(realpath "$1" 2>/dev/null) # realpath removes trailing '/'s
 
 # Retrieve username who launched pkexec.
-PKU=$(cat /etc/passwd | grep $PKEXEC_UID | cut -d':' -f1)
+if [[ $PKEXEC_UID ]]; then
+    PKU=$(cat /etc/passwd | grep $PKEXEC_UID | cut -d':' -f1)
+else
+    # Script needs to be run with sudo or pkexec.
+    if [ "$(whoami)" != "root" ]; then
+        echo "This script needs root privileges. Try again with sudo (or even pkexec). Exiting."
+        exit 1
+    fi
+    # Already run as sudo, grab correct username.
+    PKU=$SUDO_USER
+fi
 
 # System info
 LOG_DATE=$(date +%F-%H-%M)
@@ -401,7 +411,6 @@ names=$(snap list | tail -n +2 | tr -s ' ' | cut -d' ' -f1)
 api="http://localhost/v2/snaps/"
 socket="/run/snapd.socket"
 for snap in $names; do
-    #snap_id=$(snap info $snap | grep 'snap-id:' | tr -s ' ' | cut -d' ' -f2)
     json=$(curl --silent --unix-socket "$socket" "$api/$snap")
     snap_id=$(echo "$json" | jq '.result.id' | tr -d '"')
     snap_ids["$snap"]="$snap_id"
