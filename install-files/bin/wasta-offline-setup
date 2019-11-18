@@ -68,12 +68,12 @@ then
   MSG+="
 
 Passed Parameter: $PARAM"
-  
+
   # trim off trailing whitespace:
   PARAM=$(echo "${PARAM}" | sed 's@ *$@@')
   # trim off trailing "/"
   PARAM=$(echo "${PARAM}" | sed 's@/*$@@')
-  
+
   if [[ "$PARAM" == *"wasta-offline" ]] && [[ -e "$PARAM" ]]
   then
     # valid location, use it (if not valid will be prompted below)
@@ -100,9 +100,9 @@ then
 <i>You will be prompted to <b>either</b>:</i>\n
   <b>* Select</b> an <b>existing</b> <i>'wasta-offline'</i>  folder <b>or</b>\n
   <b>* Create</b> (and then <b>Select</b>) a <b>new</b> <i>'wasta-offline'</i>  folder\n
-  
+
 <small><i><b>NOTE:</b> If instead you want to use <b>full mirror repositories</b>
-with wasta [Offline], click <b>No</b> and instead use apt-mirror or debmirror 
+with wasta [Offline], click <b>No</b> and instead use apt-mirror or debmirror
 to set up wasta [Offline], using a 'wasta-offline/apt-mirror' folder
 as the apt-mirror base path.</i></small>
 
@@ -114,19 +114,19 @@ software updates or installs on other computers.</i></small>" 2>/dev/null
     # User didn't say yes: exit
     exit 1
   fi
-  
-     
+
+
   # first, look for wasta-offline folder under /media/$USER (12.10 and newer)
   # 2014-04-24 rik: $USER, $(logname), $(whoami), $(who) all not working when
   #   launch with gksu.  So, just setting to /media/*/*/wasta-offline :-(
   START_FOLDER=$(ls -1d /media/*/*/wasta-offline 2> /dev/null | head -1)
-  
+
   if [ -z "$START_FOLDER" ]
   then
     # second, look for wasta-offline folder under /media (12.04 and older)
     START_FOLDER=$(ls -1d /media/*/wasta-offline 2>/dev/null | head -1)
   fi
-  
+
   if [ -z "$START_FOLDER" ]
   then
     # no wasta-offline, try /media/$USER (12.10 and newer)
@@ -134,13 +134,13 @@ software updates or installs on other computers.</i></small>" 2>/dev/null
     #   now, and "/media" will be selected below.
     START_FOLDER=$(ls -1d /media/$USER 2>/dev/null | head -1)
   fi
-  
+
   if [ -z "$START_FOLDER" ]
   then
     # no /media/$USER, try /media
     START_FOLDER=$(ls -1d /media 2>/dev/null | head -1)
   fi
-  
+
   if [ -z "$START_FOLDER" ]
   then
     # no /media folder, so start in /
@@ -150,7 +150,7 @@ software updates or installs on other computers.</i></small>" 2>/dev/null
   MSG+="
 
 start folder: $START_FOLDER"
-  
+
   FOLDER_SEL=$(zenity --file-selection \
     --directory --filename="$START_FOLDER" \
     --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
@@ -207,15 +207,15 @@ case "$SERIES" in
   quantal|nadia)
     REPO_SERIES="quantal"
   ;;
-  
+
   raring|olivia)
     REPO_SERIES="raring"
   ;;
-  
+
   saucy|petra)
     REPO_SERIES="saucy"
   ;;
-  
+
   trusty|qiana|rebecca|rafaela|rosa)
     #LTS 14.04-based Mint 17.x
     REPO_SERIES="trusty"
@@ -345,7 +345,7 @@ then
   echo | tee -a "$LOG"
   echo "*** Killing rsync process $RSYNC_PID if found." | tee -a "$LOG"
   kill $RSYNC_PID
-  
+
   zenity --error --no-wrap --title="wasta [Offline] Setup: Exiting" \
     --width=500 --height=200 --no-wrap \
     --text "<b>Copying Local Cache Canceled:</b> your computer's
@@ -375,7 +375,7 @@ SYNC_PID=$!
   done
 
   echo | tee -a "$LOG"
-  echo "Info: flushing file buffers to disk (sync) took approximately $COUNT seconds." | tee -a "$LOG"  
+  echo "Info: flushing file buffers to disk (sync) took approximately $COUNT seconds." | tee -a "$LOG"
 
   #second sync just to "make sure"
   sync
@@ -396,7 +396,7 @@ if [ -e "$REPO_SERIES/${ARCH_FOLDER}/clean_me_up.txt" ]  || \
 then
 (
   #---------------------------------------------------------------------------
-  #Clean old versions of packages out of the ARCH_FOLDER     
+  #Clean old versions of packages out of the ARCH_FOLDER
   #---------------------------------------------------------------------------
 
   ARCH_FOLDER_OLD=${ARCH_FOLDER}_$(date +%Y-%m-%d)
@@ -418,7 +418,7 @@ then
     KEEP=$(dpkg-scanpackages --arch amd64 "$REPO_SERIES/$ARCH_FOLDER" \
       2>> "$LOG" \
       | grep "^Filename: " | cut -c 11-)
-    
+
     for x in $KEEP; do  #expects that no packages have spaces in the name
       echo "#Isolating obsolete 64bit packages...\n\nKeeping $x\n\n\n"
       if [ -e $x ]; then
@@ -431,12 +431,12 @@ then
 
     echo "#Isolating obsolete 32bit packages...\n\n\n\n\n"
     #only the most current of the 32bit and _all packages (again) are returned.
-    #  meaning that the _all versions would include the TWO latest versions 
-    #  in the final folder, so skipping ALL packages this time. 
+    #  meaning that the _all versions would include the TWO latest versions
+    #  in the final folder, so skipping ALL packages this time.
     KEEP=$(dpkg-scanpackages --arch i386 "$REPO_SERIES/$ARCH_FOLDER" \
       2>>"$LOG" \
       | grep "^Filename: " | grep --invert-match "_all.deb$" | cut -c 11-)
-    
+
     for x in $KEEP; do  #expects that no packages have spaces in the name
       echo "#Isolating obsolete 32bit packages...\n\nKeeping $x\n\n\n"
       if [ -e $x ]; then
@@ -481,7 +481,7 @@ then
     echo "++++++++++++++++++++++++++++++++++++++++++++++++++++++"|tee -a "$LOG"
     echo "DEBUG:the following packages were marked obsolete"     |tee -a "$LOG"
     ls "$REPO_SERIES/${ARCH_FOLDER_OLD}"                         |tee -a "$LOG"
-    rmdir --ignore-fail-on-non-empty  $REPO_SERIES/${ARCH_FOLDER_OLD} 
+    rmdir --ignore-fail-on-non-empty  $REPO_SERIES/${ARCH_FOLDER_OLD}
     echo "++++++++++++++++++++++++++++++++++++++++++++++++++++++"|tee -a "$LOG"
   fi
 ) | zenity --progress \
@@ -495,7 +495,7 @@ else
   echo "HINT: put a file named 'clean_me_up.txt' in             "|tee -a "$LOG"
   echo "$REPO_SERIES/${ARCH_FOLDER} if you want to cleanup      "|tee -a "$LOG"
   echo "obsolete packages from your wasta-offline local-cache   "|tee -a "$LOG"
-fi  
+fi
 
 
 
@@ -535,11 +535,11 @@ DPKG_PID=$!
   --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
   --text="Generating software list for wasta [Offline]...\n\n\n\n\n" 2>/dev/null
 
-#check return: if not zero then likely user canceled, 
+#check return: if not zero then likely user canceled,
 #  so need to kill dpkg process
 if [ "$?" -ne 0 ];
 then
-  # kill dpkg-scanpackage process 
+  # kill dpkg-scanpackage process
   kill $DPKG_PID
   echo "killed dpkg-scanpackage process: $DPKG_PID" | tee -a "$LOG"
   zenity --error --no-wrap --title="wasta [Offline] Setup: Exiting" \
@@ -573,11 +573,11 @@ else
   rm "$REPO_SERIES/$ARCH_FOLDER/Packages.0"           2>> "$LOG"
   zenity --error --no-wrap --title="wasta [Offline] Setup: Exiting" \
     --width=500 --height=200 --no-wrap \
-    --text "<b>Software Package Generation Canceled:</b> 
+    --text "<b>Software Package Generation Canceled:</b>
 wasta [Offline] is <b>not</b> ready because the listing of software packages
-was not completed -likely due to a corrupt package- 
-check the log 
-[${LOG}] 
+was not completed -likely due to a corrupt package-
+check the log
+[${LOG}]
 for dpkg-scanpackage details.
 <b>wasta [Offline] Setup will now exit.</b>" 2>/dev/null
   exit 1
@@ -620,7 +620,7 @@ A template (preseed.cfg.template) is provided with some known examples.
 EOS
 
   cat - > "${DEB_FILES}/non-distributables/preseed.cfg.template" << EOS
-# Preseeding provides a way to set answers to questions asked during the 
+# Preseeding provides a way to set answers to questions asked during the
 # installation process, without having to manually enter the answers while the
 # installation is running.
 #
@@ -653,7 +653,7 @@ if [[ -x /usr/bin/snap ]]; then
     echo $(date +%T) $HOST "wasta-offline-snap-setup started." | tee -a "$LOG"
     echo "Its log file can be found in $WO_LOC/log/wasta-offline-snap-setup" | tee -a "$LOG"
     echo | tee -a "$LOG"
-    "$BASE"/wasta-offline-snap-setup "$WO_LOC"
+    pkexec "$BASE"/wasta-offline-snap-setup "$WO_LOC"
 fi
 
 echo | tee -a "$LOG"
