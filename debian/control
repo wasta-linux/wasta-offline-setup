@@ -13,7 +13,7 @@ Recommends: wasta-offline
 Description: Create or Update a wasta-offline "Local Cache Repository"
  wasta-offline-setup guides a user through creating or updating a wasta-offline
  local cache repository.  A "wasta-offline local cache repository" consists
- of software packages  from a computer's local apt cache of installed software.
+ of software packages from a computer's locally installed software.
  .
  The "wasta-offline local cache repository" can then be used by wasta-offline
  on other computers to perform local software installs or updates.
