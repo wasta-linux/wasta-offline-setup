@@ -287,6 +287,21 @@ script_exit() {
 
     echo >> "$LOG"
     echo "Done." | tee -a "$LOG"
+    if [[ $AUTO -eq 0 ]]; then
+        if [[ $ec -eq 0 ]]; then
+            type="--info"
+            text="Copy complete.\n\n\
+All snap packages have been updated in:
+ $SNAPS_DIR."
+        else # script error
+            type="--error"
+            text="An error was encountered.\n\n\
+Please try again after consulting the log at:
+$LOG"
+        fi
+        sudo --user="$PKU" zenity "$type" "${ZDEFAULTS[@]}" \
+            --text="$text" 2>/dev/null
+    fi
     exit "$ec"
     }
 
