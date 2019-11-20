@@ -11,8 +11,8 @@ Architecture: all
 Depends: dpkg-dev, perl (<< 5.22.1-9) | curl, jq, rename, rsync, zenity, ${shlibs:Depends}, ${misc:Depends}
 Recommends: wasta-offline
 Description: Create or Update a wasta-offline "Local Cache Repository"
- wasta-offline-setup guides a user through creating or updating a wasta-offline
- local cache repository.  A "wasta-offline local cache repository" consists
+ Wasta-offline-setup guides a user through creating or updating a wasta-offline
+ local cache repository. A "wasta-offline local cache repository" consists
  of software packages from a computer's locally installed software.
  .
  The "wasta-offline local cache repository" can then be used by wasta-offline
