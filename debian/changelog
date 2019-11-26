@@ -1,16 +1,21 @@
-<<<<<<< HEAD
+wasta-offline-setup (2.1.2) bionic; urgency=medium
+
+  * cleanup after snap merge
+  * bump version - build failed with unknown GPG?
+
+ -- Justin Luth <jluth@mail.com>  Tue, 26 Nov 2019 16:37:19 +0300
+
 wasta-offline-setup (2.1.1) bionic; urgency=medium
 
   * recognize Linux Mint Tessa/Tina/Tricia
 
  -- Justin Luth <jluth@mail.com>  Thu, 30 Oct 2019 19:41:25 +0300
-=======
+
 wasta-offline-setup (2.1) bionic; urgency=medium
 
   * include support for snap packages
 
  -- Nate Marti <nate_marti@sil.org>  Sun, 10 Nov 2019 13:40:56 +0100
->>>>>>> b9099f8... advanced to version 2.1 and changed series to bionic
 
 wasta-offline-setup (1.1.9.7) bionic; urgency=medium
 
@@ -57,7 +62,7 @@ wasta-offline-setup (1.1.9) trusty; urgency=medium
 
 wasta-offline-setup (1.1.8) precise; urgency=low
 
-  * don't delete non-distributables folder when purging dups 
+  * don't delete non-distributables folder when purging dups
 
  -- Justin Luth <jluth@mail.com>  Fri, 03 Jul 2015 17:22:35 +0300
 
@@ -73,7 +78,7 @@ wasta-offline-setup (1.1.6) precise; urgency=low
     to stderr.  Probably filled up a buffer or something.  Instead
     wrote it out to the log.  Not a big deal since can't write
     to screen anyway during zenity calls.
-  * Hang was only a problem with LOTS of excess packages. 
+  * Hang was only a problem with LOTS of excess packages.
 
  -- Justin Luth <jluth@mail.com>  Mon, 05 Jan 2015 23:42:21 +0300
 
