@@ -280,7 +280,7 @@ TIP1
 
   2)
     cat << TIP2 | tee -a "$LOG"
-Create a file named 'clean_me_up.txt' in the wasta-offline
+Create a file named 'clean_me_up.txt' in the wasta-offline/local-cache
 folder if you want to automatically cleanup obsolete packages
 from any of the local_cache subdirectories.
 TIP2
