@@ -264,6 +264,40 @@ echo | tee -a "$LOG"
 echo "Local Repository set to: $WO_LOC/local-cache/$REPO_SERIES/$ARCH_FOLDER" \
      | tee -a "$LOG"
 
+
+echo | tee -a "$LOG"
+echo | tee -a "$LOG"
+echo "*** RANDOM HINT: *******************************************************" | tee -a "$LOG"
+case "$[$RANDOM % 3]" in
+  1)
+    cat << TIP1 | tee -a "$LOG"
+wasta-offline-backup installs an apt.conf.d setting that keeps downloaded
+deb files in a cache, even when using apt instead of apt-get. So
+for best results, install wasta-offline-setup BEFORE doing any
+other updates - otherwise your downloads might not be cached.
+TIP1
+  ;;
+
+  2)
+    cat << TIP2 | tee -a "$LOG"
+Create a file named 'clean_me_up.txt' in the wasta-offline
+folder if you want to automatically cleanup obsolete packages
+from any of the local_cache subdirectories.
+TIP2
+  ;;
+
+  *)
+    cat << TIP0 | tee -a "$LOG"
+Use apt-get instead of apt, because apt by default doesn't cache the
+downloaded packages.
+TIP0
+  ;;
+esac
+
+echo "************************************************************************" | tee -a "$LOG"
+echo | tee -a "$LOG"
+
+
 mkdir -p "$WO_LOC/local-cache/$REPO_SERIES/$ARCH_FOLDER/non-distributables"
 
 # rsync cache
