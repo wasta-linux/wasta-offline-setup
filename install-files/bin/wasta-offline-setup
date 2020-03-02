@@ -93,7 +93,7 @@ if [[ -z "$WO_LOC" ]]
 then
   zenity --question --no-wrap --height=200 --width=500 \
     --title="wasta [Offline] Setup" \
-    --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+    --window-icon=/usr/share/icons/hicolor/scalable/apps/wasta-offline.svg \
     --text="<b>Use wasta [Offline] Setup to add your computer's
 <u>local software cache</u> to wasta [Offline]?</b>\n
 
@@ -153,7 +153,7 @@ start folder: $START_FOLDER"
 
   FOLDER_SEL=$(zenity --file-selection \
     --directory --filename="$START_FOLDER" \
-    --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+    --window-icon=/usr/share/icons/hicolor/scalable/apps/wasta-offline.svg \
     --title="Select or Create a 'wasta-offline' Folder" 2>/dev/null)
   if [[ "$FOLDER_SEL" == *"wasta-offline" ]]
   then
@@ -166,7 +166,7 @@ wasta-offline location: $WO_LOC"
   else
     zenity --error --width=500 --height=200 --no-wrap \
       --title="wasta [Offline] Setup: Exiting" \
-      --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+      --window-icon=/usr/share/icons/hicolor/scalable/apps/wasta-offline.svg \
       --text="<b>Selected Folder:</b> $FOLDER_SEL\n
 This folder is not a <b>'wasta-offline'</b> folder.\n
 wasta [Offline] Setup will now exit.\n\n<b>No processing done...</b>" 2>/dev/null
@@ -179,7 +179,7 @@ if [[ -z "$WO_LOC" ]]
 then
   zenity --error --width=500 --height=200 --no-wrap \
     --title="wasta [Offline] Setup: Exiting" \
-    --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+    --window-icon=/usr/share/icons/hicolor/scalable/apps/wasta-offline.svg \
     --text "No <b>'wasta-offline'</b> folder has been set.\n
 wasta-offline-setup will now exit.\n\n<b>No processing done...</b>" 2>/dev/null
   exit 1
@@ -326,7 +326,7 @@ if [ ${FREE_SPACE} -lt ${USE_SPACE} ]; then
   echo "WARNING:  NOT ENOUGH DISK SPACE" | tee -a "$LOG"
   zenity --question --width=500 --height=200 --no-wrap \
     --title="wasta [Offline] Setup: Warning" \
-    --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+    --window-icon=/usr/share/icons/hicolor/scalable/apps/wasta-offline.svg \
     --text "Not enough disk space to add package files.\n
 ${FREE_SPACE} bytes reported to be free.
 ${USE_SPACE}  bytes required to add new packages.
@@ -370,7 +370,7 @@ RSYNC_PID=$!
 
 ) | zenity --progress --title="wasta [Offline] Setup: Copying Software Cache" \
     --pulsate --auto-close --width=500 --height=200 \
-    --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+    --window-icon=/usr/share/icons/hicolor/scalable/apps/wasta-offline.svg \
     --text "Copying local software cache to wasta [Offline]...\n\n\n\n\n" 2>/dev/null
 
 if [ "$?" -ne 0 ];
@@ -417,7 +417,7 @@ SYNC_PID=$!
 ) | zenity \
   --progress --title="wasta [Offline] Setup: Flushing file buffers to disk" \
   --pulsate --auto-close --width=500 --height=200 --no-cancel\
-  --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+  --window-icon=/usr/share/icons/hicolor/scalable/apps/wasta-offline.svg \
   --text "Waiting for the disk to finish saving the files...\n\n\n\n\n" 2>/dev/null
 
 
@@ -522,7 +522,7 @@ then
   --title="wasta [Offline] Setup: Generating Software Package List" \
   --pulsate --auto-close --width=500 --height=200 \
   --no-cancel \
-  --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+  --window-icon=/usr/share/icons/hicolor/scalable/apps/wasta-offline.svg \
   --text="Isolating obsolete packages in wasta [Offline]...\n\n\n\n\n" 2>/dev/null
 else
   echo | tee -a "$LOG"
@@ -566,7 +566,7 @@ DPKG_PID=$!
 ) | zenity --progress \
   --title="wasta [Offline] Setup: Generating Software Package List" \
   --pulsate --auto-close --width=500 --height=200 \
-  --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+  --window-icon=/usr/share/icons/hicolor/scalable/apps/wasta-offline.svg \
   --text="Generating software list for wasta [Offline]...\n\n\n\n\n" 2>/dev/null
 
 #check return: if not zero then likely user canceled,
@@ -701,7 +701,7 @@ echo "========================================================" | tee -a "$LOG"
 
 zenity --question --title="wasta [Offline] Setup: Finished" \
   --width=500 --height=200 --no-wrap \
-  --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png \
+  --window-icon=/usr/share/icons/hicolor/scalable/apps/wasta-offline.svg \
   --text="<b>Finished adding your computer's local software
 cache to wasta [Offline].</b>\n\n
 <i>wasta [Offline] is now ready for local software
@@ -713,7 +713,7 @@ then
   #user said YES: show log
   zenity --text-info --title="wasta [Offline] Setup: Log" --width=650 \
     --height=500 --no-wrap --filename="$LOG" --font="Ubuntu Mono" \
-    --window-icon=/usr/share/icons/hicolor/64x64/apps/wasta-offline.png 2>/dev/null
+    --window-icon=/usr/share/icons/hicolor/scalable/apps/wasta-offline.svg 2>/dev/null
 fi
 
 exit 0
