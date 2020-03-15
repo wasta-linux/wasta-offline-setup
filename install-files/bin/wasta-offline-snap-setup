@@ -423,7 +423,7 @@ declare -A snap_ids
 names=$(snap list | tail -n +2 | tr -s ' ' | cut -d' ' -f1)
 # The "$ snap info" command queries the public snapd server: very slow when making multiple requests.
 #   The local snapd API requires using curl & jq, but it is nearly instantaneous.
-api="http://localhost/v2/snaps/"
+api="http://localhost/v2/snaps"
 socket="/run/snapd.socket"
 for snap in $names; do
     json=$(curl --silent --unix-socket "$socket" "$api/$snap")
@@ -475,7 +475,15 @@ tmp_copy=$(mktemp "$TEMPLATE" --tmpdir)
 #   Using du shows bytes to be copied when they're really still in memory.
 #   Disk's stat file is more accurate but reads entire disk rather than destination folder.
 #bytes_dest_initial=$(( $(du -s "$SNAPS_DIR" | cut -f1) * 1024))
-device=$(df "$SNAPS_DIR" | tail -n1 | sed -r 's|^/.*/([a-z]*)[0-9]*\s.*|\1|')
+device=$(df "$SNAPS_DIR" | tail -n1 | sed -r 's@^/dev/([a-z0-9]*)\s.*@\1@')
+if [[ $device ]] && [[ $device =~ ^.*p[0-9]+ ]]; then
+    # Device has p + partition # at the end; e.g. nvme0n1p1
+    device=$(echo $device | sed -r 's/^(.*)p[0-9]+/\1/')
+elif [[ ! $device =~ ^[a-z0-9]+$ ]]; then
+    # Bad device name. Exit with error.
+    echo "Bad device name: \'$device\'. Exiting."
+    exit 1
+fi
 sectors_written_initial=$(cat "/sys/block/$device/stat" | tr -s ' ' | cut -d ' ' -f7)
 
 # Loop over $snaps to copy, sync at the end.
