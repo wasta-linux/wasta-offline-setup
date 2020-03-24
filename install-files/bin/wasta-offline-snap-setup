@@ -81,7 +81,6 @@ fi
 # System info
 LOG_DATE=$(date +%F-%H-%M)
 HOST=$(uname -n)
-BASE=$(realpath $(dirname $0))
 
 # Zenity defaults
 ZTITLE="wasta [Offline] Snap Setup"
@@ -182,7 +181,7 @@ rm -f "$SNAPS_DIR"/.test-write
 
 # Set log location.
 LOG_DIR="$SNAPS_DIR/log/wasta-offline-snap-setup"
-mkdir --mode=777 --parents $LOG_DIR
+sudo --user="$PKU" mkdir --mode=777 --parents $LOG_DIR
 LOG="$LOG_DIR/$LOG_DATE-$HOST.log"
 sudo --user="$PKU" touch "$LOG"
 
@@ -192,7 +191,7 @@ sudo --user="$PKU" touch "$LOG"
 if [[ $SNAPS_DIR =~ ^.*wasta-offline$ ]]; then
     SNAPS_DIR="$SNAPS_DIR"/local-cache/snaps
     # Make sure $SNAPS_DIR exists.
-    mkdir --mode=777 --parents "$SNAPS_DIR"
+    sudo --user="$PKU" mkdir --mode=777 --parents "$SNAPS_DIR"
 fi
 
 # $SNAPS_DIR now successfully set with $USER having non-sudo write access.
@@ -265,7 +264,7 @@ script_exit() {
     # Remove temp files.
     rm -r /tmp/${TEMPLATE%.*}*
 
-    # Remove snaps in $SNAPS_DIR that don't have asserts (due to incomplete copy).
+    # Remove snaps in $SNAPS_DIR that don't have asserts (due to failed copy).
     files_in_dest=$(find "$SNAPS_DIR" -type f)
     for f in ${files_in_dest[@]}; do
         if [[ $f =~ .*\.snap$ ]]; then
@@ -325,15 +324,17 @@ echo -e "Seeded snaps:\n$seeded_list\n" >> "$LOG"
 
 # Add these snap names to $snaps_local dictionary.
 declare -A snaps_local
-for i in ${seeded_list[@]}; do
-    filename="${i##*/}"
-    filetitle="${filename//.*}"
-    snap="${filetitle%_*}"
-    rev="${filetitle##*_}"
-    size=$(stat --printf="%s" "$i")
-    # Add "S" after to flag the snap as "seeded" rather than "installed".
-    snaps_local["$snap"]="$rev $size S"
-done
+if [[ -n $seeded_list ]]; then
+    while IFS= read -r i; do
+        filename="${i##*/}"
+        filetitle="${filename//.*}"
+        snap="${filetitle%_*}"
+        rev="${filetitle##*_}"
+        size=$(stat --printf="%s" "$i")
+        # Add "S" after to flag the snap as "seeded" rather than "installed".
+        snaps_local["$snap"]="$rev $size S"
+    done <<< "${seeded_list[@]}"
+fi
 
 # Get list of snaps currently installed.
 installed_list=$(snap list | tail -n +2)
@@ -360,24 +361,26 @@ available_list=$(find "$SNAPS_DIR"/ -name '*.snap')
 # Build associative array of available snaps and revisions in SNAPS_DIR.
 #   The revision numbers are space-delimited; e.g. ("[skype]"="54 57 ").
 declare -A snaps_avail
-for i in ${available_list[@]}; do
-    name_rev=${i##*/}
-    name_rev=${name_rev%.snap}
-    rev=${name_rev##*_}
-    name=${name_rev%_*}
-    snaps_avail["$name"]+="$rev "
-done
-
-# Sort revisions listed for each snap, choose highest one.
 declare -A snaps_top
-for snap in ${!snaps_avail[@]}; do
-    top=$(
-        for r in ${snaps_avail[$snap]}; do
-            echo $r
-        done | sort -nr | head -1
-        )
-    snaps_top["$snap"]="$top"
-done
+if [[ -n $available_list ]]; then
+    while IFS= read -r i; do
+        name_rev=${i##*/}
+        name_rev=${name_rev%.snap}
+        rev=${name_rev##*_}
+        name=${name_rev%_*}
+        snaps_avail["$name"]+="$rev "
+    done <<< "${available_list[@]}"
+
+    # Sort revisions listed for each snap, choose highest one.
+    for snap in ${!snaps_avail[@]}; do
+        top=$(
+            for r in ${snaps_avail[$snap]}; do
+                echo $r
+            done | sort -nr | head -1
+            )
+        snaps_top["$snap"]="$top"
+    done
+fi
 
 
 # 3. Determine relevant snaps (and assert files) to copy over.
@@ -472,30 +475,37 @@ echo "-------------------------------------------------------" >> "$LOG"
 
 # Show progress dialog based on sectors copied to destination disk.
 tmp_copy=$(mktemp "$TEMPLATE" --tmpdir)
-#   Using du shows bytes to be copied when they're really still in memory.
-#   Disk's stat file is more accurate but reads entire disk rather than destination folder.
-#bytes_dest_initial=$(( $(du -s "$SNAPS_DIR" | cut -f1) * 1024))
-device=$(df "$SNAPS_DIR" | tail -n1 | sed -r 's@^/dev/([a-z0-9]*)\s.*@\1@')
-if [[ $device ]] && [[ $device =~ ^.*p[0-9]+ ]]; then
-    # Device has p + partition # at the end; e.g. nvme0n1p1
-    device=$(echo $device | sed -r 's/^(.*)p[0-9]+/\1/')
-elif [[ ! $device =~ ^[a-z0-9]+$ ]]; then
+#device_p=$(df "$SNAPS_DIR" | tail -n1 | sed -r 's@^/dev/([a-z0-9]*)\s.*@\1@')
+device_p=$(df --output=source "$SNAPS_DIR" | sed -r 's@/dev/(.*)@\1@')
+if [[ $device_p ]] && [[ $device_p =~ ^.*p[0-9]+ ]]; then
+    # $device_p has p + partition # at the end; e.g. nvme0n1p1
+    device=$(echo $device_p | sed -r 's/^(.*)p[0-9]+/\1/')
+elif [[ $device_p ]] && [[ $device_p =~ ^sd[a-z][0-9] ]]; then
+    # $device_p is "normal" sdXN but needs partition # removed.
+    device=$(echo $device_p | sed -r 's/^(sd[a-z])[0-9]+/\1/')
+else
     # Bad device name. Exit with error.
     echo "Bad device name: \'$device\'. Exiting."
     exit 1
 fi
-sectors_written_initial=$(cat "/sys/block/$device/stat" | tr -s ' ' | cut -d ' ' -f7)
+sectors_written_initial=$(awk '/'$device' / {print $10}' /proc/diskstats)
 
 # Loop over $snaps to copy, sync at the end.
 {
+    # Create temp folder for extracted files.
+    template="wo-yaml.XXXX"
+    tmp_yaml_dir=$(mktemp -d "$template" --tmpdir)
+
     # Copy each snap only if there is enough room on SNAPS_DIR disk.
     for snap in ${!snaps_to_copy[@]}; do
+        # Get basic info for snap.
         data="${snaps_to_copy[$snap]}"
         rem="${data#* }"
 
         rev="${data%% *}"
         size="${rem%% *}"
         state="${rem#* }"
+        snap_rev="${snap}_${rev}"
 
         # Get size of available space (in B) on SNAPS_DIR disk.
         avail=$(df -B1 --output=avail "$SNAPS_DIR" | tail -n1)
@@ -503,27 +513,23 @@ sectors_written_initial=$(cat "/sys/block/$device/stat" | tr -s ' ' | cut -d ' '
         if [[ $avail -gt $size ]]; then
             # Send status info to $tmp_copy.
             echo -e "0\tCopying $snap" >> "$tmp_copy"
-
-            snap_rev="${snap}_${rev}"
             echo -e "\t$snap_rev.snap and $snap_rev.assert" >> "$LOG"
 
-            # Copy installed snaps.
+            # Set state-dependent variables.
             if [[ $state == 'I' ]]; then
                 src_snaps="$SNAPS"
                 src_asserts="$tmp_asserts_dir"
-                # Copying as root; need to ensure proper permissions at destination.
-                cp "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/
-                chmod 666 "$SNAPS_DIR"/"$snap_rev.snap"
-                cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
-                chmod 666 "$SNAPS_DIR"/"$snap_rev.assert"
-            # Copy seeded snaps.
+                # Set snap.yaml location.
+                yaml="/snap/$snap/$rev/meta/snap.yaml"
+
             elif [[ $state == 'S' ]]; then
                 src_snaps="$SEEDS"/snaps
                 src_asserts="$SEEDS"/assertions
-                cp "$src_snaps"/"$snap_rev.snap" "$SNAPS_DIR"/
-                chmod 666 "$SNAPS_DIR"/"$snap_rev.snap"
-                cp "$src_asserts"/"$snap_rev.assert" "$SNAPS_DIR"/
-                chmod 666 "$SNAPS_DIR"/"$snap_rev.assert"
+                f=$(find "$src_snaps" -name "$snap_rev")
+                # Extract /meta/snap.yaml to tempdir
+                unsquashfs -dest "$tmp_yaml_dir/$snap_rev" "$f" /meta/snap.yaml >/dev/null
+                # Set snap.yaml location.
+                yaml="$tmp_yaml_dir/$snap_rev/meta/snap.yaml"
 
             else
                 # Not really possible.
@@ -531,8 +537,40 @@ sectors_written_initial=$(cat "/sys/block/$device/stat" | tr -s ' ' | cut -d ' '
                 echo "1" >> "$tmp_copy"
                 script_exit 1
             fi
+
+            # Determine supported architectures from snap.yaml.
+            arch_data=$(grep -A6 'architectures:' "$yaml")
+            ct=1
+            arches=()
+            while IFS= read -r line; do
+                if [[ $ct -eq 1 ]]; then
+                    # first line is 'architectures:'
+                    ct=$((ct+1))
+                    continue
+                elif [[ $line =~ ^-[[:space:]] ]]; then
+                    # subsequent relevant lines start with '- '
+                    arch=${line:2}
+                    arches+=("$arch")
+                    ct=$((ct+1))
+                else
+                    # No more arches to list.
+                    break
+                fi
+            done <<< "$arch_data"
+
+            # Create arch-specific subfolder(s) & copy snaps.
+            for arch in "${arches[@]}"; do
+                sudo --user="$PKU" mkdir -p "$SNAPS_DIR/$arch"
+
+                # Copy snaps to arch-specific folder; set correct perms.
+                cp "$src_snaps/$snap_rev.snap" "$SNAPS_DIR/$arch"
+                chmod 666 "$SNAPS_DIR/$arch/$snap_rev.snap"
+                cp "$src_asserts/$snap_rev.assert" "$SNAPS_DIR/$arch"
+                chmod 666 "$SNAPS_DIR/$arch/$snap_rev.assert"
+            done
+
         else
-            disk=$(df "$SNAPS_DIR" | tail -n1 | tr -s ' ' | cut -d ' ' -f1)
+            disk=$(df --output=source "$SNAPS_DIR" | tail -n +2)
             text="Not enough room left on device $disk.\n\n\
 Please clear up some space and try again or use a different disk."
             echo "$text" | tee -a "$LOG"
@@ -547,6 +585,7 @@ Please clear up some space and try again or use a different disk."
     done
     sync 2>&1 >> "$LOG"
     echo >> "$LOG"
+    rm -r "$tmp_yaml_dir"
 } &
 COPY_PID=$!
 
@@ -555,20 +594,14 @@ text="Copying snaps to:\n\n\
 \t$SNAPS_DIR\n\n\
 This may take some time, especially on a USB 2.0 device.\n\n\n"
 
-# Get reported block size from destination for calculating progress.
-block_size=$(stat -c '%o' "$SNAPS_DIR")
+block_size=512
 progress=0
 while [[ $(ps --no-headers -p "$COPY_PID") ]]; do
-    #bytes_dest_current=$(($(du -s "$SNAPS_DIR" | cut -f1) * 1024))
-    #bytes_copied=$(( $bytes_dest_current - $bytes_dest_initial ))
-    sectors_written=$(cat "/sys/block/$device/stat" | tr -s ' ' | cut -d ' ' -f7)
+    # Do some math to track file copy progress.
+    sectors_written=$(awk '/'$device' / {print $10}' /proc/diskstats)
     sectors_copied=$(( $sectors_written - $sectors_written_initial ))
-    # Multiplying $sectors_copied by 4230 to get total bytes copied.
-    #   This is based solely on observation--I can't logically explain it.
-    #   This factor should be 512 according to documentation for /sys/block/<dev>/stat:
-    #   https://www.kernel.org/doc/Documentation/block/stat.txt,
-    #   but my observations say otherwise.
     if [[ $total_bytes_to_copy -gt 0 ]]; then
+        echo "progress = $sectors_copied * $block_size * 100 / $total_bytes_to_copy"
         progress=$(( $sectors_copied * $block_size * 100 / $total_bytes_to_copy ))
     else
         progress="100"
@@ -590,7 +623,6 @@ if [[ $ec -gt 0 ]]; then
     script_exit "$ec" "$COPY_PID"
 fi
 
-
 # 6. Delete old revisions, keeping only the $MAX most recent ones.
 # ---------------------------------------------------------------------------
 # List snaps in offline directory.
@@ -598,22 +630,22 @@ echo "Listing snaps in offline folder..." | tee -a "$LOG"
 echo "-------------------------------------------------------" >> "$LOG"
 
 available_list=$(find "$SNAPS_DIR"/ -name '*.snap')
-for i in ${available_list[@]}; do
-    filename=${i##*/}
-    echo -e "\t$filename" >> "$LOG"
-done
+while IFS= read -r i; do
+    snap_rev=${i##*/}
+    echo -e "\t$snap_rev" >> "$LOG"
+done <<< "${available_list[@]}"
 echo >> "$LOG"
 
 # Build up-to-date dictionary of offline snaps and revisions in SNAPS_DIR.
 #   The revision numbers are space-delimited; e.g. ("[skype]"="54 57 ").
 declare -A snaps_offline
-for a in ${available_list[@]}; do
-    name_rev="${a##*/}"
-    name_rev="${name_rev%.snap}"
-    rev="${name_rev##*_}"
-    name="${name_rev%_*}"
+while IFS= read -r a; do
+    snap_rev="${a##*/}"
+    snap_rev="${snap_rev%.snap}"
+    rev="${snap_rev##*_}"
+    name="${snap_rev%_*}"
     snaps_offline["$name"]+="$rev "
-done
+done <<< "${available_list[@]}"
 
 # Sort revisions listed for each snap. Remove all but $MAX higest revisions.
 echo "Removing old snap versions..." | tee -a "$LOG"
@@ -641,9 +673,15 @@ done
 # Remove all snaps and asserts of given revision numbers.
 for snap in ${!snaps_removed[@]}; do
     for rev in ${snaps_removed[$snap]}; do
+        # Get location of snap and assert.
+        snap=$(find "$SNAPS_DIR" -name "${snap}_${rev}.snap")
+        assert=$(find "$SNAPS_DIR" -name "${snap}_${rev}.assert")
         echo -e "\t${snap}_${rev}.snap and ${snap}_${rev}.assert" >> "$LOG"
-        rm -f "$SNAPS_DIR"/"${snap}_${rev}.snap"
-        rm -f "$SNAPS_DIR"/"${snap}_${rev}.assert"
+        #rm -f "$SNAPS_DIR"/"${snap}_${rev}.snap"
+        #rm -f "$SNAPS_DIR"/"${snap}_${rev}.assert"
+        # TODO: verify that this works properly.
+        rm "$snap"
+        rm "$assert"
     done
 done
 
