@@ -11,6 +11,7 @@ fi
 
 BASE=$(realpath $(dirname $0))
 BIN=/usr/bin
+BIN=/home/$SUDO_USER/.local/bin
 POLKIT=/usr/share/polkit-1/actions
 
 bins=(
@@ -18,7 +19,7 @@ bins=(
 )
 
 actions=(
-    org.wasta.apps.wasta-offline-snap-setup.policy
+    org.wasta.apps.test-wasta-offline-snap-setup.policy
 )
 
 if [[ ! $1 ]]; then
@@ -35,8 +36,8 @@ if [[ ! $1 ]]; then
     cd "$POLKIT"
     for a in ${actions[@]}; do
         if [[ ! -e ./$a ]]; then
-            cp -s "$BASE/install-files/$a" .
-            echo "$BASE/install-files/$a -> $POLKIT"
+            cp -s "$BASE/$a" .
+            echo "$BASE/$a -> $POLKIT"
         fi
     done
 
