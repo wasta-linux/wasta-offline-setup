@@ -181,7 +181,7 @@ rm -f "$SNAPS_DIR"/.test-write
 
 # Set log location.
 LOG_DIR="$SNAPS_DIR/log/wasta-offline-snap-setup"
-sudo --user="$PKU" mkdir --mode=777 --parents $LOG_DIR
+sudo --user="$PKU" mkdir --mode=777 --parents "$LOG_DIR"
 LOG="$LOG_DIR/$LOG_DATE-$HOST.log"
 sudo --user="$PKU" touch "$LOG"
 
