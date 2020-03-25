@@ -10,7 +10,6 @@ if [[ $(id -u) -ne 0 && ! $1 == '-h' ]]; then
 fi
 
 BASE=$(realpath $(dirname $0))
-BIN=/usr/bin
 BIN=/home/$SUDO_USER/.local/bin
 POLKIT=/usr/share/polkit-1/actions
 
@@ -27,8 +26,8 @@ if [[ ! $1 ]]; then
     cd "$BIN"
     for b in ${bins[@]}; do
         if [[ ! -e ./$b ]]; then
-            cp -s "$BASE/install-files/bin/$b" .
-            echo "$BASE/install-files/bin/$b -> $BIN"
+            cp -s "$BASE/../install-files/bin/$b" .
+            echo "$BASE/../install-files/bin/$b -> $BIN"
         fi
     done
 
