@@ -1,3 +1,10 @@
+wasta-offline-setup (2.1.5) bionic; urgency=medium
+
+  * use architecture subfolder when copying snaps
+  * allow for wasta-offline paths with spaces
+
+ -- Nate Marti <nate_marti@sil.org>  Wed, 25 Mar 2020 20:22:31 +0100
+
 wasta-offline-setup (2.1.4) bionic; urgency=medium
 
   * updating logo references to 2020 logo
