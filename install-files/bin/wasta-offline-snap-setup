@@ -266,21 +266,21 @@ script_exit() {
 
     # Remove snaps in $SNAPS_DIR that don't have asserts (due to failed copy).
     files_in_dest=$(find "$SNAPS_DIR" -type f)
-    for f in ${files_in_dest[@]}; do
+    while IFS= read -r f; do
         if [[ $f =~ .*\.snap$ ]]; then
             if [[ ! -f ${f//.snap}.assert ]]; then
-                echo -e "\nCleaning up orphaned snaps in $SNAPS_DIR..." >> $LOG
+                echo -e "\nCleaning up orphaned snaps in $SNAPS_DIR..." >> "$LOG"
                 rm "$f"
                 echo "$f removed from $SNAPS_DIR" >> "$LOG"
             fi
         elif [[ $f =~ .*\.assert$ ]]; then
             if [[ ! -f ${f//.assert}.snap ]]; then
-                echo -e "\nCleaning up orphaned assertions in $SNAPS_DIR..." >> $LOG
+                echo -e "\nCleaning up orphaned assertions in $SNAPS_DIR..." >> "$LOG"
                 rm "$f"
                 echo "$f removed from $SNAPS_DIR" >> "$LOG"
             fi
         fi
-    done
+    done <<< "${files_in_dest[@]}"
 
     # TODO: Perform file integrity check for snaps in $SNAPS_DIR?
 
@@ -651,14 +651,14 @@ echo "Removing old snap versions..." | tee -a "$LOG"
 echo "-------------------------------------------------------" >> "$LOG"
 # Create dictionary of snaps and revisions to be removed.
 declare -A snaps_removed
-for snap in ${!snaps_offline[@]}; do
+for snap in "${!snaps_offline[@]}"; do
     sorted=$(
-        for r in ${snaps_offline[$snap]}; do
+        for r in "${snaps_offline[$snap]}"; do
             echo "$r"
         done | sort -nr
         )
     count=1
-    for rev in ${sorted[@]}; do
+    for rev in "${sorted[@]}"; do
         if [[ $count -le $MAX ]]; then
             # Don't remove snap revision.
             ((count += 1))
@@ -670,17 +670,17 @@ for snap in ${!snaps_offline[@]}; do
 done
 
 # Remove all snaps and asserts of given revision numbers.
-for snap in ${!snaps_removed[@]}; do
-    for rev in ${snaps_removed[$snap]}; do
+for snap in "${!snaps_removed[@]}"; do
+    for rev in "${snaps_removed[$snap]}"; do
         # Get location of snap and assert.
-        snap=$(find "$SNAPS_DIR" -name "${snap}_${rev}.snap")
-        assert=$(find "$SNAPS_DIR" -name "${snap}_${rev}.assert")
+        s=$(find "$SNAPS_DIR" -name "${snap}_${rev}.snap")
+        a=$(find "$SNAPS_DIR" -name "${snap}_${rev}.assert")
         echo -e "\t${snap}_${rev}.snap and ${snap}_${rev}.assert" >> "$LOG"
         #rm -f "$SNAPS_DIR"/"${snap}_${rev}.snap"
         #rm -f "$SNAPS_DIR"/"${snap}_${rev}.assert"
         # TODO: verify that this works properly.
-        rm "$snap"
-        rm "$assert"
+        rm -i "$s"
+        rm -i "$a"
     done
 done
 
