@@ -474,9 +474,9 @@ echo "Copying snaps and assert files..." | tee -a "$LOG"
 echo "-------------------------------------------------------" >> "$LOG"
 
 # Show progress dialog based on sectors copied to destination disk.
-tmp_copy=$(mktemp "$TEMPLATE" --tmpdir)
 #device_p=$(df "$SNAPS_DIR" | tail -n1 | sed -r 's@^/dev/([a-z0-9]*)\s.*@\1@')
-device_p=$(df --output=source "$SNAPS_DIR" | sed -r 's@/dev/(.*)@\1@')
+disk=$(df --output=source "$SNAPS_DIR" | grep dev)
+device_p=$(echo "$disk" | sed -r 's@/dev/(.*)@\1@')
 if [[ $device_p ]] && [[ $device_p =~ ^.*p[0-9]+ ]]; then
     # $device_p has p + partition # at the end; e.g. nvme0n1p1
     device=$(echo $device_p | sed -r 's/^(.*)p[0-9]+/\1/')
@@ -490,12 +490,13 @@ else
 fi
 sectors_written_initial=$(awk '/'$device' / {print $10}' /proc/diskstats)
 
+# Create temp folder for extracted files.
+tmp_copy=$(mktemp "$TEMPLATE" --tmpdir)
+template="wo-yaml.XXXX"
+tmp_yaml_dir=$(mktemp -d "$template" --tmpdir)
+
 # Loop over $snaps to copy, sync at the end.
 {
-    # Create temp folder for extracted files.
-    template="wo-yaml.XXXX"
-    tmp_yaml_dir=$(mktemp -d "$template" --tmpdir)
-
     # Copy each snap only if there is enough room on SNAPS_DIR disk.
     for snap in ${!snaps_to_copy[@]}; do
         # Get basic info for snap.
@@ -570,7 +571,6 @@ sectors_written_initial=$(awk '/'$device' / {print $10}' /proc/diskstats)
             done
 
         else
-            disk=$(df --output=source "$SNAPS_DIR" | tail -n +2)
             text="Not enough room left on device $disk.\n\n\
 Please clear up some space and try again or use a different disk."
             echo "$text" | tee -a "$LOG"
@@ -585,9 +585,9 @@ Please clear up some space and try again or use a different disk."
     done
     sync 2>&1 >> "$LOG"
     echo >> "$LOG"
-    rm -r "$tmp_yaml_dir"
 } &
 COPY_PID=$!
+rm -r "$tmp_yaml_dir"
 
 # Read tempfile to get data for Zenity progress dialog while COPY_PID exists.
 text="Copying snaps to:\n\n\
@@ -601,7 +601,6 @@ while [[ $(ps --no-headers -p "$COPY_PID") ]]; do
     sectors_written=$(awk '/'$device' / {print $10}' /proc/diskstats)
     sectors_copied=$(( $sectors_written - $sectors_written_initial ))
     if [[ $total_bytes_to_copy -gt 0 ]]; then
-        echo "progress = $sectors_copied * $block_size * 100 / $total_bytes_to_copy"
         progress=$(( $sectors_copied * $block_size * 100 / $total_bytes_to_copy ))
     else
         progress="100"
