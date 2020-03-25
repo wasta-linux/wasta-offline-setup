@@ -658,7 +658,7 @@ for snap in "${!snaps_offline[@]}"; do
         done | sort -nr
         )
     count=1
-    for rev in "${sorted[@]}"; do
+    for rev in ${sorted[@]}; do
         if [[ $count -le $MAX ]]; then
             # Don't remove snap revision.
             ((count += 1))
@@ -673,14 +673,12 @@ done
 for snap in "${!snaps_removed[@]}"; do
     for rev in "${snaps_removed[$snap]}"; do
         # Get location of snap and assert.
+        rev="${rev% }"
         s=$(find "$SNAPS_DIR" -name "${snap}_${rev}.snap")
         a=$(find "$SNAPS_DIR" -name "${snap}_${rev}.assert")
         echo -e "\t${snap}_${rev}.snap and ${snap}_${rev}.assert" >> "$LOG"
-        #rm -f "$SNAPS_DIR"/"${snap}_${rev}.snap"
-        #rm -f "$SNAPS_DIR"/"${snap}_${rev}.assert"
-        # TODO: verify that this works properly.
-        rm -i "$s"
-        rm -i "$a"
+        rm "$s"
+        rm "$a"
     done
 done
 
