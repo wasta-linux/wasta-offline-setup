@@ -8,11 +8,12 @@
 # 1. Creates a dictionary of information about local snaps.
 #       Start with seeds.
 #       Add/overwrite from installed snaps, keeping highest revisions.
-# 2. Creates a dictionary of snaps and revisions in SNAPS_DIR
+# 2. Creates a dictionary of snaps and revisions in $SNAPS_DIR.
 # 3. Determines which snaps should be copied.
 # 4. Creates assert files for all installed snaps that should be copied.
-# 5. Copies each snap and its assertion to SNAPS_DIR.
-# 6. Removes extra snaps from SNAPS_DIR.
+# 5. Creates architecture subfolders in $SNAPS_DIR.
+# 6. Copies each snap and its assertion to $SNAPS_DIR/$arch.
+# 7. Removes extra snaps from $SNAPS_DIR.
 # =============================================================================
 
 # Set global variables
@@ -174,10 +175,8 @@ while [[ $no_write_access ]]; do
     no_write_access=$(sudo --user="$PKU" touch "$SNAPS_DIR"/.test-write 2>&1)
 done
 
-
 # Delete write-access test file.
 rm -f "$SNAPS_DIR"/.test-write
-
 
 # Set log location.
 LOG_DIR="$SNAPS_DIR/log/wasta-offline-snap-setup"
