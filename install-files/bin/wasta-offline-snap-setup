@@ -204,6 +204,13 @@ SNAPS="$SNAPD"/snaps
 # mktemp template reference
 TEMPLATE="wo-snap.XXXX"
 
+# Move wayward snaps to arch-specific subfolders.
+# TODO: This is transitional. The initial version of wasta-offline-snap-setup
+#   placed snaps of all architectures together in the same folder.
+if [[ $(which wasta-off-snap-cleanup) ]]; then
+    sudo --user="$PKU" wasta-off-snap-cleanup "$SNAPS_DIR"
+fi
+
 
 # Define functions.
 # ---------------------------------------------------------------------------
