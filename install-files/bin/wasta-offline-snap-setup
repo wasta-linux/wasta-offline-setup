@@ -141,7 +141,7 @@ while [[ $no_write_access ]]; do
         # No wasta-offline folder found. Start in user's $HOME.
         START_FOLDER=/home/"$PKU"/
     else
-        for d in ${wo_list[@]}; do
+        while IFS= read -r d; do
             # Look for 'local-cache' subfolder of 'wasta-offline' folder.
             loc_cache=$(find "$d" -maxdepth 1 -name 'local-cache' -type d 2>/dev/null)
             if [[ $loc_cache =~ ^/media/.*$ ]]; then
@@ -156,7 +156,7 @@ while [[ $no_write_access ]]; do
                 # No "true" wasta-offline folder found.
                 START_FOLDER=/home/"$PKU"/
             fi
-        done
+        done <<< "${wo_list[@]}"
     fi
 
     # Store $START_FOLDER for later writing to $LOG.
