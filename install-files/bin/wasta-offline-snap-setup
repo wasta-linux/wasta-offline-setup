@@ -634,7 +634,7 @@ fi
 echo "Listing snaps in offline folder..." | tee -a "$LOG"
 echo "-------------------------------------------------------" >> "$LOG"
 
-available_list=$(find "$SNAPS_DIR"/ -name '*.snap')
+available_list=$(find "$SNAPS_DIR"/ -name '*.snap' | sort -n)
 while IFS= read -r i; do
     snap_rev=${i##*/}
     echo -e "\t$snap_rev" >> "$LOG"
@@ -661,7 +661,7 @@ for snap in "${!snaps_offline[@]}"; do
     sorted=$(
         for r in "${snaps_offline[$snap]}"; do
             echo "$r"
-        done | sort -nr
+        done | grep --only-matching --extended-regexp '[0-9]+' | sort -nr
         )
     count=1
     for rev in ${sorted[@]}; do
