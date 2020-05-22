@@ -271,7 +271,7 @@ echo "*** RANDOM HINT: *******************************************************" 
 case "$[$RANDOM % 3]" in
   1)
     cat << TIP1 | tee -a "$LOG"
-wasta-offline-backup installs an apt.conf.d setting that keeps downloaded
+wasta-offline-setup installs an apt.conf.d setting that keeps downloaded
 deb files in a cache, even when using apt instead of apt-get. So
 for best results, install wasta-offline-setup BEFORE doing any
 other updates - otherwise your downloads might not be cached.
