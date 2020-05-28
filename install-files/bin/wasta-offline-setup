@@ -665,8 +665,8 @@ EOS
 #
 # TIP: use <WO_FOLDER> as a placeholder for the mounted USB/wasta-offline folder
 
-# ttf-mscorefonts-installer     msttcorefonts/dldir     string <WO_FOLDER>/local-cache/$REPO_SERIES/$ARCH_FOLDER/non-distributables
-# android-sdk-installer android-sdk-installer/dldir     string <WO_FOLDER>/local-cache/$REPO_SERIES/$ARCH_FOLDER/non-distributables
+# ttf-mscorefonts-installer     msttcorefonts/dldir     string <WO_FOLDER>/local-cache/$REPO_SERIES/$ARCH_FOLDER/non-distributables/ttf
+# android-sdk-installer android-sdk-installer/dldir     string <WO_FOLDER>/local-cache/$REPO_SERIES/$ARCH_FOLDER/non-distributables/sdk
 EOS
 
 fi
