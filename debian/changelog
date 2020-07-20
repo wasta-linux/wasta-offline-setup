@@ -1,3 +1,11 @@
+wasta-offline-setup (2.1.8) focal; urgency=medium
+
+  * remove wasta-offline-snap-setup launcher: called from wos
+    or terminal to reduce main menu clutter (esp. if snap not
+    installed)
+
+ -- Rik Shaw <rikshaw76@gmail.com>  Mon, 20 Jul 2020 10:33:12 -0500
+
 wasta-offline-setup (2.1.7) bionic; urgency=medium
 
   * fix to allow spaces in intial wasta-offline folder search

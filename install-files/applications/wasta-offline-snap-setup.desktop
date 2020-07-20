@@ -1,8 +1,0 @@
-
-[Desktop Entry]
-Name=wasta [Offline] Snap Setup
-Comment=Set up a wasta-offline 'local cache repository' for snap apps
-Exec=pkexec wasta-offline-snap-setup
-Type=Application
-Icon=wasta-offline
-Categories=GNOME;GTK;System;Utility;

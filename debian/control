@@ -8,7 +8,7 @@ Homepage: https://github.com/wasta-linux/wasta-offline-setup/
 
 Package: wasta-offline-setup
 Architecture: all
-Depends: dpkg-dev, perl (<< 5.22.1-9) | curl, jq, rename, rsync, zenity, ${shlibs:Depends}, ${misc:Depends}
+Depends: dpkg-dev, perl (<< 5.22.1-9) | curl, jq, rename, rsync, zenity, ${misc:Depends}
 Recommends: wasta-offline
 Description: Create or Update a wasta-offline "Local Cache Repository"
  Wasta-Offline-Setup guides a user through creating or updating a wasta-offline
