@@ -687,7 +687,12 @@ if [[ -x /usr/bin/snap ]]; then
     echo $(date +%T) $HOST "wasta-offline-snap-setup started." | tee -a "$LOG"
     echo "Its log file can be found in $WO_LOC/log/wasta-offline-snap-setup" | tee -a "$LOG"
     echo | tee -a "$LOG"
-    pkexec "$BASE"/wasta-offline-snap-setup "$WO_LOC"
+    # TODO: run with sudo if wasta-offline-setup is run with sudo.
+    root="pkexec"
+    if [[ $SUDO_USER ]]; then
+        root="sudo"
+    fi
+    "$root" "$BASE"/wasta-offline-snap-setup "$WO_LOC"
 fi
 
 echo | tee -a "$LOG"

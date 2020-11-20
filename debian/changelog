@@ -1,3 +1,10 @@
+wasta-offline-setup (2.1.9) focal; urgency=medium
+
+  * launch *-snap-setup with either pkexec or sudo, according to how *-
+    setup was launched
+
+ -- Nate Marti <nate_marti@sil.org>  Fri, 20 Nov 2020 07:20:46 +0100
+
 wasta-offline-setup (2.1.8) focal; urgency=medium
 
   * remove wasta-offline-snap-setup launcher: called from wos
