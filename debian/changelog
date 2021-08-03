@@ -1,3 +1,9 @@
+wasta-offline-setup (2.1.9.1) focal; urgency=medium
+
+  * recognize Cinnamon Mint's 20.1 ulyssa and 20.2 uma
+
+ -- Justin Luth <jluth@mail.com>  Tue, 03 Aug 2021 08:19:42 +0200
+
 wasta-offline-setup (2.1.9) focal; urgency=medium
 
   * launch *-snap-setup with either pkexec or sudo, according to how *-
