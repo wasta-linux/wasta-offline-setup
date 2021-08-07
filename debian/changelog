@@ -1,3 +1,10 @@
+wasta-offline-setup (2.1.10) focal; urgency=medium
+
+  * cleanly handle if no snaps exist yet
+  * verify that snap command exists (i.e. if snapd is installed)
+
+ -- Justin Luth <jluth@mail.com>  Sat, 07 Aug 2021 12:42:39 +0200
+
 wasta-offline-setup (2.1.9.1) focal; urgency=medium
 
   * recognize Cinnamon Mint's 20.1 ulyssa and 20.2 uma

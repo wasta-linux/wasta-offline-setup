@@ -66,6 +66,11 @@ fi
 # Clean up argument if passed.
 SNAPS_DIR=$(realpath "$1" 2>/dev/null) # realpath removes trailing '/'s
 
+if ! [[ $(which snap) ]]; then
+    echo "snapd is not installed. Exiting."
+    exit 1
+fi
+
 # Retrieve username who launched pkexec.
 if [[ $PKEXEC_UID ]]; then
     PKU=$(cat /etc/passwd | grep $PKEXEC_UID | cut -d':' -f1)
@@ -349,15 +354,17 @@ echo -e "Installed snaps:\n$installed_list\n" >> "$LOG"
 # Add these snap names to $snaps_local dictionary. Installed snaps will replace
 #   seeded snaps of the same name. Installed snaps should always have an equal
 #   or higher revision number than seeded snaps, so no problem.
-while read -r line; do
-    snap=$(echo "$line" | tr -s ' ' | cut -d' ' -f1)
-    rev=$(echo "$line" | tr -s ' ' | cut -d' ' -f3)
+if [[ -n $installed_list ]]; then
+    while read -r line; do
+        snap=$(echo "$line" | tr -s ' ' | cut -d' ' -f1)
+        rev=$(echo "$line" | tr -s ' ' | cut -d' ' -f3)
 
-    fileloc=$SNAPS/${snap}_${rev}.snap
-    size=$(stat --printf="%s" "$fileloc")
+        fileloc=$SNAPS/${snap}_${rev}.snap
+        size=$(stat --printf="%s" "$fileloc")
 
-    snaps_local["$snap"]="$rev $size I"
-done <<< "$installed_list"
+        snaps_local["$snap"]="$rev $size I"
+    done <<< "$installed_list"
+fi
 
 
 # 2. Create dictionary of snaps and top revision #s present in offline folder.
@@ -644,13 +651,15 @@ echo >> "$LOG"
 # Build up-to-date dictionary of offline snaps and revisions in SNAPS_DIR.
 #   The revision numbers are space-delimited; e.g. ("[skype]"="54 57 ").
 declare -A snaps_offline
-while IFS= read -r a; do
-    snap_rev="${a##*/}"
-    snap_rev="${snap_rev%.snap}"
-    rev="${snap_rev##*_}"
-    name="${snap_rev%_*}"
-    snaps_offline["$name"]+="$rev "
-done <<< "${available_list[@]}"
+if [[ -n $available_list ]]; then
+    while IFS= read -r a; do
+        snap_rev="${a##*/}"
+        snap_rev="${snap_rev%.snap}"
+        rev="${snap_rev##*_}"
+        name="${snap_rev%_*}"
+        snaps_offline["$name"]+="$rev "
+    done <<< "${available_list[@]}"
+fi
 
 # Sort revisions listed for each snap. Remove all but $MAX higest revisions.
 echo "Removing old snap versions..." | tee -a "$LOG"
