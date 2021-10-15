@@ -1,3 +1,9 @@
+wasta-offline-setup (2.1.11) jammy; urgency=medium
+
+  * recognize Cinnamon Mint's 20.3 una and Ubuntu 22.04 jammy
+
+ -- Justin Luth <jluth@mail.com>  Fri, 15 Oct 2021 18:16:06 +0200
+
 wasta-offline-setup (2.1.10) focal; urgency=medium
 
   * cleanly handle if no snaps exist yet
