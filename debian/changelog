@@ -1,3 +1,9 @@
+wasta-offline-setup (2.1.13) jammy; urgency=medium
+
+  * Ignore experimental snap revisions (e.g. "x1").
+
+ -- Nate Marti <nate_marti@sil.org>  Mon, 02 May 2022 09:06:18 +0100
+
 wasta-offline-setup (2.1.12) jammy; urgency=medium
 
   * Properly handle arch-less snaps (e.g. "bare").
