@@ -572,16 +572,24 @@ tmp_yaml_dir=$(mktemp -d "$template" --tmpdir)
                 fi
             done <<< "$arch_data"
 
-            # Create arch-specific subfolder(s) & copy snaps.
-            for arch in "${arches[@]}"; do
-                sudo --user="$PKU" mkdir -p "$SNAPS_DIR/$arch"
+            # Copy snaps, creating arch-specific subfolder(s) if necessary.
+            if [[ -z "$arches" ]]; then
+                # Snap is archless; copy snap versions to non-arch folder; set correct perms.
+                cp "$src_snaps/$snap_rev.snap" "$SNAPS_DIR"
+                chmod 666 "$SNAPS_DIR/$snap_rev.snap"
+                cp "$src_asserts/$snap_rev.assert" "$SNAPS_DIR"
+                chmod 666 "$SNAPS_DIR/$snap_rev.assert"
+            else
+                for arch in "${arches[@]}"; do
+                    sudo --user="$PKU" mkdir -p "$SNAPS_DIR/$arch"
 
-                # Copy snaps to arch-specific folder; set correct perms.
-                cp "$src_snaps/$snap_rev.snap" "$SNAPS_DIR/$arch"
-                chmod 666 "$SNAPS_DIR/$arch/$snap_rev.snap"
-                cp "$src_asserts/$snap_rev.assert" "$SNAPS_DIR/$arch"
-                chmod 666 "$SNAPS_DIR/$arch/$snap_rev.assert"
-            done
+                    # Copy snaps to arch-specific folder; set correct perms.
+                    cp "$src_snaps/$snap_rev.snap" "$SNAPS_DIR/$arch"
+                    chmod 666 "$SNAPS_DIR/$arch/$snap_rev.snap"
+                    cp "$src_asserts/$snap_rev.assert" "$SNAPS_DIR/$arch"
+                    chmod 666 "$SNAPS_DIR/$arch/$snap_rev.assert"
+                done
+            fi
 
         else
             text="Not enough room left on device $disk.\n\n\
