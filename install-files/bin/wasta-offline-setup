@@ -236,8 +236,8 @@ case "$SERIES" in
     REPO_SERIES="focal"
   ;;
 
-  jammy)
-    #LTS 22.04
+  jammy|vanessa)
+    #LTS 22.04 based Mint 21.x
     REPO_SERIES="jammy"
   ;;
 

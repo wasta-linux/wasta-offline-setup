@@ -1,3 +1,10 @@
+wasta-offline-setup (2.1.14) jammy; urgency=medium
+
+  * recognize Cinnamon Mint's 21.0 vanessa
+  * update build system to 20.04-ish compat level 11
+
+ -- Justin Luth <jluth@mail.com>  Tue, 03 May 2022 07:48:24 +0200
+
 wasta-offline-setup (2.1.13) jammy; urgency=medium
 
   * Ignore experimental snap revisions (e.g. "x1").
