@@ -1,3 +1,9 @@
+wasta-offline-setup (2.1.15) jammy; urgency=medium
+
+  * recognize Cinnamon Mint's 21.1 vera
+
+ -- Justin Luth <jluth@mail.com>  Mon, 10 Oct 2022 09:31:34 -0400
+
 wasta-offline-setup (2.1.14) jammy; urgency=medium
 
   * recognize Cinnamon Mint's 21.0 vanessa
