@@ -1,0 +1,125 @@
+#!/bin/bash
+
+
+SIM=
+VERBOSE=
+
+
+error_echo() {
+    printf "%s\n" "$*" >&2
+}
+
+verbose_echo() {
+    if [[ "$VERBOSE" == '-v' ]]; then
+        echo "$*"
+    fi
+}
+
+
+while getopts ':hsv' o; do
+    case "$o" in
+        h)  
+            echo "Help!"
+            exit 0
+            ;;
+        s)
+            SIM=YES
+            ;;
+        v) 
+            VERBOSE='-v'
+            ;;
+        *)
+            error_echo "Error: Invalid option: -$OPTARG"
+            exit 1
+            ;;
+    esac
+done
+shift $((OPTIND-1))
+
+# Get target directory.
+err_no_wol_dir="Error: Need to pass a wasta-offline destination directory."
+if [[ -n "$1" ]]; then
+    input_path="$(realpath "$1")"
+else
+    error_echo "$err_no_wol_dir"
+    exit 1
+fi
+# Confirm wasta-offline directory.
+if [[ "$(basename "$input_path")" == 'wasta-offline' && -d "$input_path" ]]; then
+    WOL_DIR="$input_path"
+else
+    error_echo "$err_no_wol_dir"
+    exit 1
+fi
+verbose_echo "wasta-offline dir: '$WOL_DIR'"
+
+# Find mount dir.
+mount_dir=
+current_dir="$WOL_DIR"
+while [[ -z "$mount_dir" ]]; do
+    # Exit with error if we get all the way back to /.
+    if [[ "$current_dir" == '/' ]]; then
+        error_echo "Error: Mount point not found for $WOL_DIR"
+        exit 1
+    fi
+    # See if current_dir is listed in mounts.
+    if mount | grep "$current_dir" >/dev/null 2>&1; then
+        mount_dir="$current_dir"
+    else
+        current_dir="$(dirname "$current_dir")"
+    fi
+done
+verbose_echo "Mount dir: '$mount_dir'"
+
+# Get device path.
+DEV=$(df -h 2>/dev/null | grep "$mount_dir" | awk '{print $1}')
+verbose_echo "device: '$DEV'"
+
+# Verify filesystem.
+fs=$(lsblk -n -o FSTYPE "$DEV")
+if [[ "$fs" != 'exfat' && "$fs" != 'vfat' && "$fs" != 'ext4' ]]; then
+    error_echo "Error: FileSystem not supported: '$fs'"
+    exit 1
+fi
+
+# Set flatpak subdirectory.
+FP_DIR="${WOL_DIR}/flatpaks"
+verbose_echo "External flatpaks dir: '$FP_DIR'"
+mkdir -p "$FP_DIR"
+
+# Create list of installed flatpaks by "ref" (e.g. "org.flatpak.Builder/x86_64/stable").
+# FIXME: If the same flatpak is installed at both "system" and "user" level, then the
+#   create-usb command below will have problems due to the ambiguity.
+flatpaks=$(flatpak list --app --columns=application)
+if [[ -z "$flatpaks" ]]; then
+    error_echo "Info: No flatpaks installed"
+    exit 0
+fi
+verbose_echo "Installed flatpaks:"
+for fp in $flatpaks; do
+    verbose_echo "  $fp"
+done
+
+# Ensure that each flatpak remote has a "collection ID" set.
+remotes=$(flatpak --columns=name,url,collection remotes | tail -n+1 | sort -u)
+verbose_echo "flatpak remotes:"
+while read -r r; do
+    name=$(echo "$r" | awk '{print $1}')
+    url=$(echo "$r" | awk '{print $2}')
+    col=$(echo "$r" | awk '{print $3}')
+    verbose_echo "  $r"
+    # Set collection ID for flathub.
+    if [[ "$url" == 'https://dl.flathub.org/repo/' && "$col" == '-' ]]; then
+        # Set collection-id for remote.
+        flatpak $VERBOSE remote-modify --collection-id='org.flathub.Stable' "$name"
+    fi
+done <<< "$remotes"
+
+# Export each one to a wasta-offline folder found on a USB drive.
+for fp in $flatpaks; do
+    if [[ "$SIM" == 'YES' ]]; then
+        error_echo "flatpak $VERBOSE create-usb --allow-partial --destination-repo=\"$FP_DIR\" \"$WOL_DIR\" \"$fp\""
+    else
+        flatpak $VERBOSE create-usb --allow-partial --destination-repo="$FP_DIR" "$WOL_DIR" "$fp"
+    fi
+done
