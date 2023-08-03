@@ -1,0 +1,8 @@
+# This unit is intended to be installed in the systemd user instance; see the
+# docs in flatpak-sideload-usb-repo.path
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/wasta-offline-flatpak-setup-sideload-symlinks.sh /media/%u
+
+[Install]
+WantedBy=default.target
