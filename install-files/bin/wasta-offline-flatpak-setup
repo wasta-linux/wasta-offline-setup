@@ -1,6 +1,15 @@
 #!/bin/bash
 
+# =============================================================================
+# This script does the following:
+# 1. Takes "wasta-offline" directory as main argument.
+# 2. Ensures that the directory exists and is on a compatible filesystem.
+# 3. Checks for installed flatpaks.
+# 4. Ensure flathub is prepared for use as offline repo.
+# 5. Add flatpaks one at a time to wasta-offline.
+# =============================================================================
 
+LANG=C
 SIM=
 VERBOSE=
 
@@ -35,6 +44,12 @@ while getopts ':hsv' o; do
     esac
 done
 shift $((OPTIND-1))
+
+# Verify that flatpak is installed.
+if ! which flatpak >/dev/null 2>&1; then
+    error_echo "Error: flatpak not installed."
+    exit 1
+fi
 
 # Get target directory.
 err_no_wol_dir="Error: Need to pass a wasta-offline destination directory."
@@ -115,11 +130,20 @@ while read -r r; do
     fi
 done <<< "$remotes"
 
+# NOTE: create-usb command only accepts one app id at a time.
+# fp_string="$(echo "$flatpaks" | tr '\n' ' ')"
+# if [[ "$SIM" == 'YES' ]]; then
+#     error_echo "flatpak $VERBOSE create-usb --allow-partial \"$WOL_DIR\" $fp_string"
+# else
+#     flatpak $VERBOSE create-usb --allow-partial "$WOL_DIR" $fp_string
+# fi
+
 # Export each one to a wasta-offline folder found on a USB drive.
 for fp in $flatpaks; do
     if [[ "$SIM" == 'YES' ]]; then
         error_echo "flatpak $VERBOSE create-usb --allow-partial --destination-repo=\"$FP_DIR\" \"$WOL_DIR\" \"$fp\""
     else
-        flatpak $VERBOSE create-usb --allow-partial --destination-repo="$FP_DIR" "$WOL_DIR" "$fp"
+        # flatpak $VERBOSE create-usb --allow-partial --destination-repo="$FP_DIR" "$WOL_DIR" "$fp"
+        flatpak $VERBOSE create-usb --allow-partial "$WOL_DIR" "$fp"
     fi
 done
