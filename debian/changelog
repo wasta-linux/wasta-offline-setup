@@ -1,3 +1,9 @@
+wasta-offline-setup (2.3.2) noble; urgency=medium
+
+  * recognize Cinnamon Mint's 22.1 xia
+
+ -- Justin Luth <jluth@mail.com>  Thu, 12 Dec 2024 16:12:56 -0500
+
 wasta-offline-setup (2.3.1) noble; urgency=medium
 
   * recognize Cinnamon Mint's 21.3 virginia and 22.0 wilma
