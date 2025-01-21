@@ -1,3 +1,9 @@
+wasta-offline-setup (2.4.0) noble; urgency=medium
+
+  * stop sharing a folder between Linux Mint and Ubuntu
+
+ -- Justin Luth <jluth@mail.com>  Sat, 22 Feb 2025 08:28:35 -0500
+
 wasta-offline-setup (2.3.2) noble; urgency=medium
 
   * recognize Cinnamon Mint's 22.1 xia
