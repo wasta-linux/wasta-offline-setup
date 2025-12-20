@@ -1,3 +1,10 @@
+wasta-offline-setup (2.5.0) resolute; urgency=medium
+
+  * changes needed for resolute raccoon 26.04
+    * USB media mounted in /run/media/$USER now
+
+ -- Justin Luth <jluth@mail.com>  Fri, 19 Dec 2025 21:17:09 -0500
+
 wasta-offline-setup (2.4.0) noble; urgency=medium
 
   * stop sharing a folder between Linux Mint and Ubuntu
