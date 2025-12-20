@@ -161,6 +161,9 @@ start folder: $START_FOLDER"
     MSG+="
 
 wasta-offline location: $WO_LOC"
+  elif [[ -z $FOLDER_SEL ]]; then
+    # user canceled folder selection: just exit
+    exit 1
   else
     zenity --error --width=500 --height=200 --no-wrap \
       --title="wasta [Offline] Setup: Exiting" \
